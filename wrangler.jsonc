@@ -1,0 +1,56 @@
+// One Worker for https://dashboard.sfuracerbot.ca: static assets for the
+// three pages, plus a Durable Object per car that fans telemetry out.
+// See docs/decisions.md for why each setting is what it is, and
+// docs/cloudflare-setup.md for the parts only a person can do.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "racerbot-dashboard",
+  "main": "worker/src/index.ts",
+  "compatibility_date": "2026-09-26",
+
+  // Only reachable through the Access-protected custom domain. A
+  // workers.dev or preview URL would skip Access entirely, and with it the
+  // only thing that makes Cf-Access-Authenticated-User-Email trustworthy.
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    { "pattern": "dashboard.sfuracerbot.ca", "custom_domain": true }
+  ],
+
+  "assets": {
+    // Built by scripts/assemble.mjs: index.html (landing), simple/, advanced/.
+    "directory": "./dist",
+    "binding": "ASSETS",
+    // "/" and "/<car>/..." are not files, so the Worker already runs for
+    // them. "none" stops the asset router from redirecting /x/index.html to
+    // /x/ behind the Worker's back (which would lose the /<car> prefix).
+    "html_handling": "none",
+    "not_found_handling": "none"
+  },
+
+  "durable_objects": {
+    "bindings": [{ "name": "CAR_RELAY", "class_name": "CarRelay" }]
+  },
+  "migrations": [
+    // The Workers Free plan can only create SQLite-backed Durable Objects.
+    { "tag": "v1", "new_sqlite_classes": ["CarRelay"] }
+  ],
+
+  "vars": {
+    "PUBLIC_ORIGIN": "https://dashboard.sfuracerbot.ca",
+    "UPSTREAM_IDLE_SEC": "60",
+    "BRIDGE_TRACKING": "native",
+    // The one place cars are configured. Adding a car is adding an entry
+    // here (and its tunnel + Access setup, docs/cloudflare-setup.md).
+    "CARS": {
+      "rb2": {
+        "name": "Car 2",
+        "dash_origin": "https://rb2-dash-origin.sfuracerbot.ca",
+        "bridge_origin": "https://rb2-bridge-origin.sfuracerbot.ca",
+        "cam_origin": "https://rb2-cam-origin.sfuracerbot.ca"
+      }
+    }
+  },
+
+  "observability": { "enabled": true }
+}
