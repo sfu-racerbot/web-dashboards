@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark" />
+  <title>Racerbot dashboards</title>
+  <!--
+    The landing page. Plain HTML and one inline script, no build step, in
+    the simple dashboard's HUD style (apps/simple/web/style.css) and under
+    its two rules: colour is state, never decoration; nothing on the page
+    resizes itself as data arrives.
+
+    Everything it shows comes from /api/cars, which lists the cars in the
+    Worker's config and asks each car's relay whether the car is connected
+    and how many people are watching.
+  -->
+  <style>
+    :root {
+      --void: #04070c;
+      --panel: rgba(6, 12, 21, 0.62);
+      --line: rgba(64, 200, 245, 0.16);
+      --line-strong: rgba(64, 200, 245, 0.40);
+      --accent: #3ddcff;
+      --go: #2bf58a;
+      --warn: #ffb636;
+      --bad: #ff4560;
+      --ink: #dcecf7;
+      --ink-dim: #7d97ac;
+      --ink-faint: #4d6377;
+      --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Roboto Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--void);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-variant-numeric: tabular-nums;
+      -webkit-font-smoothing: antialiased;
+    }
+    main {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 32px 16px 48px;
+    }
+    header { margin-bottom: 24px; }
+    .brand {
+      font-family: var(--mono);
+      font-weight: 700;
+      letter-spacing: 0.24em;
+      font-size: 18px;
+      color: var(--ink);
+    }
+    .brand-sub {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--ink-dim);
+      margin-top: 4px;
+    }
+    .car {
+      position: relative;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    /* The corner brackets every HUD panel wears. */
+    .car::before, .car::after {
+      content: "";
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      border-color: var(--line-strong);
+      border-style: solid;
+    }
+    .car::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
+    .car::after { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+    .car-head {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .car-name { font-size: 20px; font-weight: 600; }
+    .car-id { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 18px;
+      overflow: hidden;
+      white-space: nowrap;
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ink-dim);
+      margin-bottom: 14px;
+    }
+    .status-text { overflow: hidden; text-overflow: ellipsis; }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex: none;
+      background: #2f4256;
+      transition: background-color 140ms linear, box-shadow 140ms linear;
+    }
+    .dot.on { background: var(--go); box-shadow: 0 0 8px rgba(43, 245, 138, 0.75); }
+    .dot.off { background: var(--bad); box-shadow: 0 0 8px rgba(255, 69, 96, 0.75); }
+    .links { display: flex; flex-wrap: wrap; gap: 10px; }
+    .links a {
+      display: inline-block;
+      padding: 9px 14px;
+      border: 1px solid var(--line-strong);
+      color: var(--accent);
+      text-decoration: none;
+      font-family: var(--mono);
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      transition: background-color 140ms linear;
+    }
+    .links a:hover, .links a:focus-visible { background: rgba(61, 220, 255, 0.08); }
+    .links a small { color: var(--ink-faint); text-transform: none; letter-spacing: 0; }
+    .note {
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--ink-dim);
+      border-left: 2px solid var(--line-strong);
+      padding-left: 10px;
+      margin: 24px 0 0;
+    }
+    .note strong { color: var(--ink); font-weight: 600; }
+    #error {
+      min-height: 20px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--bad);
+      margin-bottom: 12px;
+    }
+    #empty { color: var(--ink-dim); font-size: 14px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="brand">RACERBOT</div>
+      <div class="brand-sub">SFU Racerbot &middot; car dashboards</div>
+    </header>
+
+    <!-- Reserved height: a failed status poll must not push the cards down. -->
+    <div id="error" role="status"></div>
+    <div id="cars"><div id="empty">loading cars&hellip;</div></div>
+
+    <p class="note">
+      <strong>Simple</strong> is the team's own dashboard: map, LiDAR, pose, drive intent,
+      camera, live tuning. It works in any current browser, including on a phone.
+    </p>
+    <p class="note">
+      <strong>Advanced</strong> is <a href="https://github.com/lichtblick-suite/lichtblick" style="color: var(--accent)">Lichtblick</a>
+      connected straight to the car's ROS&nbsp;2 graph through foxglove_bridge: every topic,
+      service and parameter. <strong>It needs Chrome or Edge</strong>; other browsers are not
+      supported by Lichtblick.
+    </p>
+  </main>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const carsEl = document.getElementById('cars');
+      const errorEl = document.getElementById('error');
+      const POLL_MS = 10000;
+      const cards = new Map();
+
+      function el(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      }
+
+      function link(href, label, hint) {
+        const a = el('a');
+        a.href = href;
+        a.textContent = label;
+        if (hint) {
+          a.append(' ');
+          a.append(el('small', '', hint));
+        }
+        return a;
+      }
+
+      // Lichtblick opens the connection named in its URL: ?ds= picks the
+      // Foxglove WebSocket data source and ds.url says where. It must be an
+      // absolute ws(s):// URL, built here from this page's own origin.
+      function advancedHref(car) {
+        const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+        const bridge = `${scheme}://${location.host}${car.links.bridge}`;
+        return `${car.links.advanced}?ds=foxglove-websocket&ds.url=${encodeURIComponent(bridge)}`;
+      }
+
+      function card(car) {
+        const root = el('section', 'car');
+        const head = el('div', 'car-head');
+        head.append(el('span', 'car-name', car.name), el('span', 'car-id', car.id));
+        const status = el('div', 'status');
+        const dot = el('span', 'dot');
+        const text = el('span', 'status-text', 'checking…');
+        status.append(dot, text);
+        const links = el('div', 'links');
+        links.append(
+          link(car.links.simple, 'Simple'),
+          link(advancedHref(car), 'Advanced', 'Chrome / Edge'),
+          link(car.links.camera, 'Camera view'),
+        );
+        root.append(head, status, links);
+        return { root, dot, text };
+      }
+
+      function describe(status) {
+        if (!status) return { cls: '', text: 'status unknown' };
+        const watching = `${status.viewers} watching`;
+        if (status.car_connected) return { cls: 'on', text: `car online · ${watching}` };
+        // "Offline" here means the relay does not hold a car connection. With
+        // nobody watching the relay deliberately holds none, so that is not
+        // evidence the car is down -- say so rather than show red.
+        if (status.viewers === 0) return { cls: '', text: 'idle · nobody watching' + (status.error ? ` · ${status.error}` : '') };
+        return { cls: 'off', text: `car offline · ${watching}` + (status.error ? ` · ${status.error}` : '') };
+      }
+
+      function render(data) {
+        if (!data.cars.length) {
+          carsEl.textContent = '';
+          carsEl.append(el('div', '', 'No cars are configured.'));
+          return;
+        }
+        for (const car of data.cars) {
+          let entry = cards.get(car.id);
+          if (!entry) {
+            if (!cards.size) carsEl.textContent = '';
+            entry = card(car);
+            cards.set(car.id, entry);
+            carsEl.append(entry.root);
+          }
+          const view = describe(car.status);
+          entry.dot.className = `dot ${view.cls}`;
+          entry.text.textContent = view.text;
+          entry.text.title = view.text;
+        }
+      }
+
+      async function poll() {
+        if (document.visibilityState === 'hidden') return;
+        try {
+          const response = await fetch('/api/cars', { cache: 'no-store' });
+          if (!response.ok) throw new Error(`HTTP ${response.status}: ${(await response.text()).trim()}`);
+          render(await response.json());
+          errorEl.textContent = '';
+        } catch (err) {
+          errorEl.textContent = `could not load car status -- ${err.message}`;
+        }
+      }
+
+      poll();
+      setInterval(poll, POLL_MS);
+      document.addEventListener('visibilitychange', poll);
+    })();
+  </script>
+</body>
+</html>

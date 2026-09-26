@@ -34,12 +34,7 @@ function userFor(request: Request, env: Env): string | null {
   return env.ALLOW_ANONYMOUS_DEV === "1" ? "dev@localhost" : null;
 }
 
-/** Absolute ws(s):// URL of a car's bridge route, as the browser should dial it. */
-function bridgeUrl(url: URL, car: string): string {
-  return `${url.protocol === "https:" ? "wss" : "ws"}://${url.host}/${car}/bridge`;
-}
-
-async function apiCars(url: URL, env: Env, cars: Map<string, CarConfig>): Promise<Response> {
+async function apiCars(env: Env, cars: Map<string, CarConfig>): Promise<Response> {
   const list = await Promise.all([...cars.entries()].map(async ([id, car]) => {
     let status: Record<string, unknown>;
     try {
@@ -54,7 +49,11 @@ async function apiCars(url: URL, env: Env, cars: Map<string, CarConfig>): Promis
       links: {
         simple: `/${id}/simple/`,
         camera: `/${id}/simple/camera.html`,
-        advanced: `/${id}/advanced/?ds=foxglove-websocket&ds.url=${encodeURIComponent(bridgeUrl(url, id))}`,
+        // Lichtblick needs an absolute ws(s):// URL for ds.url. The page
+        // builds it from its own location: behind `wrangler dev` the
+        // Worker sees the route's hostname, not the one the browser used.
+        advanced: `/${id}/advanced/`,
+        bridge: `/${id}/bridge`,
       },
       status,
     };
@@ -79,7 +78,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
     throw err;
   }
 
-  if (route.kind === "api-cars") return apiCars(url, env, cars);
+  if (route.kind === "api-cars") return apiCars(env, cars);
 
   const car = cars.get(route.car);
   if (!car) return text(404, `unknown car '${route.car}'`);

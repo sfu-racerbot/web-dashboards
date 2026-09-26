@@ -1,0 +1,24 @@
+# Local development only. Copy to .dev.vars (which git ignores):
+#   cp .dev.vars.example .dev.vars
+# wrangler dev reads it and it overrides the vars in wrangler.jsonc.
+
+# Point rb2 at tools/mock-car instead of the real tunnel hostnames.
+# Port 8765 has nothing on it unless you run foxglove_bridge locally, so
+# /rb2/bridge answering 502 "car rb2 unreachable" is expected with the mock.
+CARS='{"rb2":{"name":"Car 2 (mock)","dash_origin":"http://localhost:8080","bridge_origin":"http://localhost:8765","cam_origin":"http://localhost:9090"}}'
+
+# The Origin the relay presents to the car. The mock allows this one.
+PUBLIC_ORIGIN="http://localhost:8787"
+
+# There is no Access in front of wrangler dev, so no logged-in email:
+# treat requests as dev@localhost instead of refusing them. Never set this
+# in wrangler.jsonc.
+ALLOW_ANONYMOUS_DEV="1"
+
+# Dummy service token. The mock does not check it; the Worker refuses to
+# reach a car without one, which is worth being able to see locally too.
+ACCESS_CLIENT_ID="dev-client-id"
+ACCESS_CLIENT_SECRET="dev-client-secret"
+
+# Close the car link 10 s after the last viewer leaves, so it is quick to watch happen.
+UPSTREAM_IDLE_SEC="10"

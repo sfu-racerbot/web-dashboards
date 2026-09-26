@@ -1,0 +1,135 @@
+{
+  "configById": {
+    "3D!racerbot-3d": {
+      "foxglovePanelTitle": "Map, scan and pose (fixed frame: map)",
+      "followTf": "map",
+      "followMode": "follow-none",
+      "scene": {
+        "transforms": {
+          "showLabel": false,
+          "axisScale": 0.5
+        }
+      },
+      "transforms": {},
+      "topics": {
+        "/map": {
+          "visible": true
+        },
+        "/scan": {
+          "visible": true,
+          "pointSize": 3,
+          "colorMode": "colormap",
+          "colorField": "range"
+        },
+        "/pf/viz/inferred_pose": {
+          "visible": true
+        }
+      },
+      "layers": {
+        "racerbot-grid": {
+          "visible": true,
+          "frameLocked": true,
+          "label": "Grid",
+          "instanceId": "racerbot-grid",
+          "layerId": "foxglove.Grid",
+          "size": 20,
+          "divisions": 20,
+          "lineWidth": 1,
+          "color": "#3ddcff33",
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "order": 1
+        }
+      },
+      "imageMode": {}
+    },
+    "Image!racerbot-camera": {
+      "foxglovePanelTitle": "Camera (TODO: confirm the compressed topic)",
+      "imageMode": {
+        "imageTopic": "/camera/camera/color/image_raw/compressed"
+      }
+    },
+    "Plot!racerbot-speed": {
+      "foxglovePanelTitle": "Speed: commanded vs measured",
+      "paths": [
+        {
+          "value": "/ackermann_cmd.drive.speed",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "commanded (/ackermann_cmd)"
+        },
+        {
+          "value": "/odom.twist.twist.linear.x",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "measured (/odom)"
+        }
+      ],
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "showLegend": true,
+      "legendDisplay": "floating",
+      "showPlotValuesInLegend": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "followingViewWidth": 30
+    },
+    "RawMessages!racerbot-intent": {
+      "foxglovePanelTitle": "Drive intent (JSON in .data)",
+      "topicPath": "/drive_intent",
+      "diffTopicPath": "",
+      "diffMethod": "custom",
+      "diffEnabled": false,
+      "showFullMessageForDiff": false
+    },
+    "Parameters!racerbot-params": {
+      "foxglovePanelTitle": "Parameters"
+    },
+    "CallService!racerbot-service": {
+      "foxglovePanelTitle": "Service call (read-only example)",
+      "serviceName": "/pure_pursuit_node/get_parameters",
+      "requestPayload": "{\n  \"names\": [\"max_speed\", \"lookahead_distance\"]\n}",
+      "layout": "vertical",
+      "buttonText": "Call"
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": {
+    "speed": 1.0
+  },
+  "layout": {
+    "direction": "row",
+    "splitPercentage": 58,
+    "first": "3D!racerbot-3d",
+    "second": {
+      "direction": "column",
+      "splitPercentage": 34,
+      "first": "Image!racerbot-camera",
+      "second": {
+        "direction": "column",
+        "splitPercentage": 40,
+        "first": "Plot!racerbot-speed",
+        "second": {
+          "direction": "row",
+          "splitPercentage": 50,
+          "first": "RawMessages!racerbot-intent",
+          "second": {
+            "direction": "column",
+            "splitPercentage": 60,
+            "first": "Parameters!racerbot-params",
+            "second": "CallService!racerbot-service"
+          }
+        }
+      }
+    }
+  }
+}

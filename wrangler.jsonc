@@ -52,5 +52,15 @@
     }
   },
 
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+
+  // wrangler dev only. Without these, local requests are rewritten to the
+  // route's hostname (dashboard.sfuracerbot.ca), including the Origin
+  // header, which the mock car then rightly refuses.
+  "dev": {
+    "port": 8787,
+    "local_protocol": "http",
+    "upstream_protocol": "http",
+    "host": "localhost:8787"
+  }
 }
