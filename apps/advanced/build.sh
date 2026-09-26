@@ -24,6 +24,7 @@ fi
 cd "$src"
 # Lichtblick pins its Yarn version in package.json ("packageManager") and
 # refuses to run without corepack.
+export COREPACK_ENABLE_DOWNLOAD_PROMPT=0  # never stop to ask in CI
 corepack enable
 yarn install --immutable
 yarn run web:build:prod
