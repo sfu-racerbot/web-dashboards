@@ -837,7 +837,8 @@
     relayText.title = (verdict.ok ? '' : verdict.message + '\n')
       + `car protocol ${version}; this site speaks ${SUPPORTED_PROTOCOL_VERSION}`
       + (relayStatus ? `\nrelay: car ${relayStatus.car_connected ? 'connected' : 'not connected'}`
-        + ` since ${new Date(relayStatus.since).toLocaleTimeString()}` : '');
+        + (relayStatus.since ? ` since ${new Date(relayStatus.since).toLocaleTimeString()}` : '')
+        + (relayStatus.error ? `\n${relayStatus.error}` : '') : '');
   }
 
   function handleHeader(header, source) {

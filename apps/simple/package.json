@@ -1,0 +1,5 @@
+{
+  "//": "The simple dashboard and its tests are CommonJS scripts, as they were in the car repo. This keeps the repo root's \"type\": \"module\" from applying to them.",
+  "private": true,
+  "type": "commonjs"
+}
