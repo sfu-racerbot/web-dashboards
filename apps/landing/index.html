@@ -175,7 +175,9 @@
 
       const carsEl = document.getElementById('cars');
       const errorEl = document.getElementById('error');
-      const POLL_MS = 10000;
+      // Each poll is one Worker request plus one Durable Object request per
+      // car (docs/costs.md), so it is slow on purpose, and stops while hidden.
+      const POLL_MS = 30000;
       const cards = new Map();
 
       function el(tag, className, text) {
