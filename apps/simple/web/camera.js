@@ -22,17 +22,47 @@
   const state = { speed: null, drive: null, stats: null, stopwatch: null };
   let ws = null;
   let cameraConnected = false;
-  const CAMERA_PORT = 9090;
+  let relayPingTimer = null;
+
+  // Same rules as dashboard.js's resolveEndpoints(), which the tests cover:
+  // the car is the first path segment (/<car>/simple/camera.html), the
+  // camera and telemetry hang off the same origin under that car, and only
+  // a page served from http://localhost may point them elsewhere with
+  // ?ws= and ?camera= (for tools/mock-car). Kept as a copy rather than a
+  // shared file so neither page gains a script, and neither gains a build.
+  function resolveEndpoints(loc) {
+    const first = String(loc.pathname || '/').split('/').filter(Boolean)[0] || '';
+    const car = /^[a-z0-9][a-z0-9-]{0,31}$/.test(first) ? first : '';
+    const scheme = loc.protocol === 'https:' ? 'wss' : 'ws';
+    const base = car ? `/${car}` : '';
+    const endpoints = { telemetry: `${scheme}://${loc.host}${base}/ws`, camera: `${base}/camera` };
+    const local = loc.protocol === 'http:'
+      && ['localhost', '127.0.0.1', '[::1]'].includes(loc.hostname);
+    if (local) {
+      const params = new URLSearchParams(loc.search || '');
+      if (params.get('ws')) endpoints.telemetry = params.get('ws');
+      if (params.get('camera')) endpoints.camera = params.get('camera').replace(/\/+$/, '');
+    }
+    return endpoints;
+  }
+  window.__cameraEndpoints = resolveEndpoints;
+  const endpoints = resolveEndpoints(location);
 
   function connectTelemetry() {
-    const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${scheme}://${location.host}/ws`);
+    ws = new WebSocket(endpoints.telemetry);
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => {
       telemetryStatus.textContent = 'TELEMETRY LIVE';
       telemetryStatus.className = 'status-pill status-good';
+      // Tell the relay this tab is alive, as dashboard.js does; a viewer
+      // that stops pinging is eventually dropped by the relay.
+      clearInterval(relayPingTimer);
+      relayPingTimer = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send('{"type":"relay_ping"}');
+      }, 10000);
     };
     ws.onclose = () => {
+      clearInterval(relayPingTimer);
       telemetryStatus.textContent = 'TELEMETRY RETRYING';
       telemetryStatus.className = 'status-pill status-bad';
       setTimeout(connectTelemetry, 1000);
@@ -136,8 +166,8 @@
     // the camera's real resolution and quality. The dashboard's little
     // inset asks for the preview tier instead -- see
     // usb_cam_stream/camera_stream_node.py.
-    cameraFeed.src =
-      `http://${location.hostname}:${CAMERA_PORT}/stream?tier=full&_=${Date.now()}`;
+    // Same origin, passed through by the site to the car's camera node.
+    cameraFeed.src = `${endpoints.camera}/stream?tier=full&_=${Date.now()}`;
   }
 
   cameraFeed.addEventListener('load', () => {

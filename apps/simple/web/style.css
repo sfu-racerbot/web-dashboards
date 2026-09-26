@@ -491,6 +491,45 @@ html, body {
   min-height: 16px;
 }
 
+/* The relay row under the link state. A fixed height and one clipped line,
+   rule 1: "car online · 2 watching" becoming "protocol mismatch · car v2 ·
+   site v1" must not move anything below it. Colour is state: the dot says
+   whether the relay has the car, red text means the protocol check failed,
+   and the control tag goes cyan (the system talking) while this tab holds
+   a control link. */
+#link-detail {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 14px;
+  margin: -4px 0 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: var(--fs-small);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+#relay-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#relay-text.link-bad { color: var(--bad); }
+
+.control-text {
+  flex: none;
+  color: var(--ink-faint);
+  transition: color 140ms linear;
+}
+
+.control-text.control-open { color: var(--accent); }
+
 .dot {
   width: 8px;
   height: 8px;
@@ -2531,6 +2570,9 @@ body.sheet-dragging .sheet-grip-bar {
      the sheet all the way up. */
   #masthead { order: -2; padding-bottom: 5px; margin-bottom: 5px; }
   #status { order: -1; }
+  /* Stays with the link state it qualifies (same order, so DOM order keeps
+     it directly under #status). */
+  #link-detail { order: -1; margin-top: -3px; margin-bottom: 5px; }
   /* Two lines, hard. --sheet-peek is a fixed height, so anything that can
      grow past what fits in it gets cut through the middle of a word, which
      reads as a broken page rather than as a message continuing below the

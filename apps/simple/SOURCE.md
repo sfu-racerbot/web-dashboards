@@ -27,13 +27,14 @@ The folder layout (`web/` beside `test/browser/`) is the car repo's own, so ever
 node apps/simple/test/run_all.js
 ```
 
-**Working when:** it ends with `all 8 test files passed`. Each line names a file and its own `N checks passed` count.
+**Working when:** it ends with `all 9 test files passed`. Each line names a file and its own `N checks passed` count.
 
 | Car repo (pytest) | Here (plain node) | Notes |
 |---|---|---|
 | `test/browser/*_test.js` (7 files) | `test/browser/*_test.js` | Imported with history; run by `run_all.js` |
 | `test_car_model_js.py`, `test_dashboard_js.py`, `test_draw_frames_js.py`, `test_map_panel_js.py`, `test_measure_js.py`, `test_panels_js.py`, `test_proc_panel_js.py` | `test/run_all.js` | These were only wrappers that ran a node file and checked for exit 0 plus `checks passed`. `run_all.js` does exactly that for every file |
 | `test_web_assets.py` | `test/web_assets_test.js` | Every assertion ported — table below |
+| *(new)* | `test/browser/control_link_test.js` | Not a port. Covers what moving the page off the car added: same-origin URLs, writes only over `/<car>/control`, the idle and hidden-tab close, and the protocol check |
 | every other `test_*.py` | stays on the car | They test the Python server (`protocol.py`, `mapstream.py`, `tuning.py`, …), which did not move |
 
 <details>

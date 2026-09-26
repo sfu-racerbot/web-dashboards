@@ -20,6 +20,12 @@
   const ctx = canvas.getContext('2d');
   const connDot = document.getElementById('conn-dot');
   const connText = document.getElementById('conn-text');
+  // The relay's own view of the link (is the car connected to the relay,
+  // and how many people are watching), and whether this tab currently holds
+  // a control link. See connectControl() and applyRelayStatus().
+  const relayDot = document.getElementById('relay-dot');
+  const relayText = document.getElementById('relay-text');
+  const controlText = document.getElementById('control-text');
   // The phone layout's always-on status strip. It is display:none on every
   // other layout, so on a laptop these four writes go to elements nobody
   // can see -- which is the point: there is no "phone mode" branch to get
@@ -519,32 +525,220 @@
   }
 
   // ---------------------------------------------------------------------
+  // Where the car is.
+  //
+  // This page is no longer served by the car. It is served by the team's
+  // Cloudflare site at https://dashboard.sfuracerbot.ca/<car>/simple/, and
+  // everything it talks to hangs off the same origin under that car's name:
+  //
+  //   /<car>/ws           telemetry, fanned out by a relay to every viewer
+  //   /<car>/control      this tab's own link for write actions
+  //   /<car>/camera/...   the camera node's MJPEG stream, passed through
+  //
+  // The car is taken from the first path segment, never from anything the
+  // page is told at runtime.
+  //
+  // Local development only (the page served from http://localhost): ?ws=,
+  // ?control= and ?camera= override those three, so the page can be pointed
+  // straight at tools/mock-car. They are ignored on any other origin.
+  // ---------------------------------------------------------------------
+
+  // The car protocol this build of the page speaks. The car announces its
+  // own in a `hello` message; see applyHello(). The page and the car used to
+  // ship together from one package, so they could never disagree -- now they
+  // deploy separately, and this check is what replaces that guarantee.
+  const SUPPORTED_PROTOCOL_VERSION = 1;
+
+  // The control link closes itself after this long without a write action,
+  // and whenever the tab is hidden, so an armed tuning panel can never
+  // outlive somebody's attention. See connectControl().
+  const CONTROL_IDLE_MIN = 5;
+
+  // How often the telemetry socket tells the relay this tab is alive. The
+  // relay answers without waking up, and drops a viewer that stops pinging
+  // so one dead tab cannot pile up telemetry nobody will read.
+  const RELAY_PING_MS = 10000;
+
+  function isLocalDevOrigin(loc) {
+    return (loc.protocol === 'http:')
+      && ['localhost', '127.0.0.1', '[::1]'].includes(loc.hostname);
+  }
+
+  /**
+   * Every URL this page connects to, from a Location-like object. Pure, so
+   * it is tested directly (test/endpoints_test.js).
+   */
+  function resolveEndpoints(loc) {
+    const path = String(loc.pathname || '/');
+    const first = path.split('/').filter(Boolean)[0] || '';
+    // Car ids are config keys like "rb2" -- nothing else is a car.
+    const car = /^[a-z0-9][a-z0-9-]{0,31}$/.test(first) ? first : '';
+    const scheme = loc.protocol === 'https:' ? 'wss' : 'ws';
+    const base = car ? `/${car}` : '';
+    const endpoints = {
+      car,
+      telemetry: `${scheme}://${loc.host}${base}/ws`,
+      control: `${scheme}://${loc.host}${base}/control`,
+      camera: `${base}/camera`,
+    };
+    if (isLocalDevOrigin(loc)) {
+      let params = null;
+      try { params = new URLSearchParams(loc.search || ''); } catch (err) { params = null; }
+      if (params) {
+        if (params.get('ws')) endpoints.telemetry = params.get('ws');
+        if (params.get('control')) endpoints.control = params.get('control');
+        if (params.get('camera')) endpoints.camera = params.get('camera').replace(/\/+$/, '');
+      }
+    }
+    return endpoints;
+  }
+
+  /**
+   * Is the car's protocol one this page can talk to? `version` is 0 for a
+   * car that sends no hello at all (one from before protocol versioning),
+   * which is compatible: the only thing it lacks is the hello itself.
+   */
+  function protocolVerdict(version, supported) {
+    if (version === null || version === undefined) return { ok: true, pending: true, message: '' };
+    if (version === supported || version === 0) {
+      return { ok: true, pending: false, message: '' };
+    }
+    return {
+      ok: false,
+      pending: false,
+      message: `this car runs protocol ${version}, this site expects ${supported}: `
+        + 'update the car or redeploy the site',
+    };
+  }
+
+  window.__resolveEndpoints = resolveEndpoints;
+  window.__protocolVerdict = protocolVerdict;
+
+  const endpoints = resolveEndpoints(location);
+
+  // ---------------------------------------------------------------------
   // WebSocket connection, with automatic reconnect -- a dropped WiFi link
   // shouldn't require reloading the page.
   // ---------------------------------------------------------------------
   let ws = null;
+  let relayPingTimer = null;
 
   function connect() {
-    // wss under https (e.g. a Cloudflare tunnel) — browsers block ws:// there.
-    const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${scheme}://${location.host}/ws`);
+    ws = new WebSocket(endpoints.telemetry);
     ws.binaryType = 'arraybuffer';
-    ws.onopen = () => setConnected(true);
+    ws.onopen = () => {
+      setConnected(true);
+      clearInterval(relayPingTimer);
+      relayPingTimer = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send('{"type":"relay_ping"}');
+      }, RELAY_PING_MS);
+    };
     ws.onclose = () => {
+      clearInterval(relayPingTimer);
       setConnected(false);
-      // A dropped link disarms tuning. The server has already forgotten
-      // this connection's arm state, so anything else here would be the
-      // UI claiming an authority it no longer has.
-      setTuningArmed(false);
+      // What the relay said about the car is no longer known either.
+      applyRelayStatus(null);
+      // Arm state belongs to the control link (connectControl), which is a
+      // separate socket; a telemetry drop does not change it.
       setTimeout(connect, 1000); // keep trying -- cheap, and self-heals a dropped link
     };
     ws.onerror = () => ws.close();
     ws.onmessage = onMessage;
   }
 
+  // ---------------------------------------------------------------------
+  // The control link.
+  //
+  // Telemetry comes from a relay shared by everyone watching, and the relay
+  // refuses writes. Every write action -- tuning arm/set/save, stopping a
+  // process, deleting a saved run, resetting SLAM, the stopwatch -- goes
+  // over this tab's own /<car>/control socket instead, which the car
+  // treats exactly like the one connection the old dashboard had: arming
+  // is per connection and starts disarmed.
+  //
+  // It is opened lazily, on the first write, and closed again after
+  // CONTROL_IDLE_MIN minutes without one, or as soon as the tab is hidden.
+  // Closing it disarms tuning on the car, so an armed panel cannot outlive
+  // the attention of the person who armed it. Only a write counts as
+  // activity; the car's replies do not.
+  // ---------------------------------------------------------------------
+  let control = null;
+  let controlIdleTimer = null;
+  const controlQueue = [];
+  const CONTROL_QUEUE_MAX = 20;
+
+  function setControlLinkText(text, open) {
+    controlText.textContent = text;
+    controlText.className = 'control-text' + (open ? ' control-open' : '');
+  }
+
+  function closeControl(reason) {
+    clearTimeout(controlIdleTimer);
+    controlIdleTimer = null;
+    if (control) {
+      const socket = control;
+      control = null;
+      try { socket.close(1000, reason); } catch (err) { /* already closing */ }
+    }
+  }
+
+  function touchControl() {
+    clearTimeout(controlIdleTimer);
+    controlIdleTimer = setTimeout(() => closeControl('idle'), CONTROL_IDLE_MIN * 60 * 1000);
+  }
+
+  function connectControl() {
+    if (control) return;
+    const socket = new WebSocket(endpoints.control);
+    control = socket;
+    socket.binaryType = 'arraybuffer';
+    setControlLinkText('ctl connecting', false);
+    socket.onopen = () => {
+      if (control !== socket) return;
+      setControlLinkText('ctl open', true);
+      while (controlQueue.length) socket.send(JSON.stringify(controlQueue.shift()));
+    };
+    socket.onmessage = (event) => {
+      if (control !== socket) return;
+      onControlMessage(event);
+    };
+    socket.onerror = () => socket.close();
+    socket.onclose = () => {
+      // A newer link already replaced this one (closed for idleness, then a
+      // write opened another before this close event landed): leave it be.
+      if (control !== null && control !== socket) return;
+      control = null;
+      clearTimeout(controlIdleTimer);
+      controlQueue.length = 0;
+      setControlLinkText('ctl idle', false);
+      // A closed control link is a disarmed one: the car forgets this
+      // connection's arm state the moment it closes, so anything else here
+      // would be the UI claiming an authority it no longer has.
+      setTuningArmed(false);
+    };
+  }
+
+  /** Send one write action over the control link, opening it if needed. */
+  function sendControl(message) {
+    touchControl();
+    if (control && control.readyState === WebSocket.OPEN) {
+      control.send(JSON.stringify(message));
+      return;
+    }
+    if (controlQueue.length < CONTROL_QUEUE_MAX) controlQueue.push(message);
+    connectControl();
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') closeControl('hidden');
+  });
+
   function setConnected(connected) {
     connDot.className = 'dot ' + (connected ? 'dot-green' : 'dot-red');
     connText.textContent = connected ? 'connected' : 'disconnected -- retrying...';
+    // A fresh connection has to establish the car's protocol again: the
+    // first car message on it decides (see noteCarMessage).
+    carProtocol.awaitingFirst = true;
     stripDot.className = 'dot ' + (connected ? 'dot-green' : 'dot-red');
     if (!connected) {
       // Said outright rather than left showing the last state the car was
@@ -558,20 +752,118 @@
 
   function onMessage(event) {
     if (typeof event.data === 'string') {
-      handleHeader(JSON.parse(event.data));
+      const header = JSON.parse(event.data);
+      if (header.type === 'tuning_armed') {
+        // Arm state is per connection, and the only connection that can be
+        // armed is this tab's control link. An arm message on the shared
+        // telemetry stream is the relay's own (always disarmed) upstream
+        // connection talking, and says nothing about this tab.
+        return;
+      }
+      handleHeader(header);
     } else {
       handleBinary(event.data);
     }
   }
 
-  function handleHeader(header) {
+  // Replies on the control link. The car sends that link only state and
+  // answers (hello, tuning, processes, saved runs, stopwatch, results), so
+  // everything goes through the same handlers as telemetry -- except
+  // anything that would be followed by a binary frame. Those belong to the
+  // telemetry socket's single "what does the next binary mean" slot, and a
+  // header arriving here would point that slot at the wrong socket.
+  function onControlMessage(event) {
+    if (typeof event.data !== 'string') return;
+    const header = JSON.parse(event.data);
+    if (header.type === 'map' || header.type === 'map_patch' || header.type === 'scan') return;
+    handleHeader(header, 'control');
+  }
+
+  // ---------------------------------------------------------------------
+  // The car's protocol version, and the relay's view of the link.
+  // ---------------------------------------------------------------------
+  const carProtocol = { version: null, awaitingFirst: true };
+  let relayStatus = null;
+
+  // Every car message passes through here. The car's first message on a
+  // connection is its hello; a car that opens with anything else predates
+  // versioning and is treated as version 0. The relay guarantees a cached
+  // hello is replayed before anything else it has from the car, so "first"
+  // still means first-from-the-car when the relay is in between.
+  function noteCarMessage(header) {
+    if (!carProtocol.awaitingFirst) return;
+    carProtocol.awaitingFirst = false;
+    if (header.type !== 'hello') applyHello({ protocol_version: 0 });
+  }
+
+  function applyHello(header) {
+    const version = Number.isInteger(header.protocol_version) ? header.protocol_version : 0;
+    carProtocol.version = version;
+    renderLinkDetail();
+    scheduleRender();
+  }
+
+  function applyRelayStatus(status) {
+    const wasConnected = !!(relayStatus && relayStatus.car_connected);
+    relayStatus = status;
+    // The car behind the relay reconnected, and may be a different build:
+    // listen for its hello again.
+    if (status && status.car_connected && !wasConnected) carProtocol.awaitingFirst = true;
+    renderLinkDetail();
+  }
+
+  // One fixed-height row under the link state. Nothing in it changes size:
+  // the text is clipped to one line and the full sentence is in its title.
+  function renderLinkDetail() {
+    const verdict = protocolVerdict(carProtocol.version, SUPPORTED_PROTOCOL_VERSION);
+    let text;
+    let dot;
+    if (!verdict.ok) {
+      text = `protocol mismatch · car v${carProtocol.version} · site v${SUPPORTED_PROTOCOL_VERSION}`;
+      dot = 'dot-red';
+    } else if (!relayStatus) {
+      text = 'relay --';
+      dot = 'dot-gray';
+    } else {
+      const watching = `${relayStatus.viewers} watching`;
+      text = relayStatus.car_connected ? `car online · ${watching}` : `car offline · ${watching}`;
+      dot = relayStatus.car_connected ? 'dot-green' : 'dot-red';
+    }
+    relayText.textContent = text;
+    relayText.className = verdict.ok ? '' : 'link-bad';
+    relayDot.className = 'dot ' + dot;
+    const version = carProtocol.version === null ? 'unknown'
+      : (carProtocol.version === 0 ? '0 (no hello: predates versioning)' : String(carProtocol.version));
+    relayText.title = (verdict.ok ? '' : verdict.message + '\n')
+      + `car protocol ${version}; this site speaks ${SUPPORTED_PROTOCOL_VERSION}`
+      + (relayStatus ? `\nrelay: car ${relayStatus.car_connected ? 'connected' : 'not connected'}`
+        + ` since ${new Date(relayStatus.since).toLocaleTimeString()}` : '');
+  }
+
+  function handleHeader(header, source) {
+    // The relay's own messages. Every relay type starts with `relay_`, a
+    // prefix no car message uses.
+    if (header.type === 'relay_status') {
+      applyRelayStatus(header);
+      return;
+    }
+    if (header.type === 'relay_pong') return;
+    if (header.type === 'relay_error') {
+      console.warn(`dashboard: the relay refused a message -- ${header.detail}`);
+      return;
+    }
+    if (source !== 'control') noteCarMessage(header);
+    if (header.type === 'hello') {
+      applyHello(header);
+      return;
+    }
     if (header.type === 'batch') {
       // One frame carrying everything that happened in the last tick --
       // see web_dashboard/batching.py. Each item is exactly the message it
       // would have been on its own, so every handler below is reused as-is
       // rather than duplicated for the batched case.
       const items = header.items || [];
-      for (let i = 0; i < items.length; i++) handleHeader(items[i]);
+      for (let i = 0; i < items.length; i++) handleHeader(items[i], source);
       return;
     }
     if (header.type === 'map' || header.type === 'map_patch' || header.type === 'scan') {
@@ -1109,6 +1401,11 @@
         `link problem: dropped ${state.desyncCount} corrupted frame(s) `
         + `-- ${state.desyncDetail}. The picture below may be stale.`;
     }
+    // Above even that: if the car and this page disagree about the
+    // protocol, nothing on the page can be trusted, and the fix is not on
+    // the car's side of the screen or this one but in a deploy.
+    const verdict = protocolVerdict(carProtocol.version, SUPPORTED_PROTOCOL_VERSION);
+    if (!verdict.ok) modeBanner.textContent = verdict.message;
 
     // One decision for all three overlays -- see drawFrames above. A
     // 'none' here means "a map is up but no pose has arrived": the banner
@@ -2596,8 +2893,8 @@
   });
 
   function sendStopwatchControl(action, enabled) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ type: 'stopwatch_control', action, enabled }));
+    // A write: over this tab's control link, never the shared telemetry.
+    sendControl({ type: 'stopwatch_control', action, enabled });
   }
 
   stopwatchToggle.addEventListener('click', () => {
@@ -2643,8 +2940,7 @@
   }
 
   function sendTuningControl(payload) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify(Object.assign({ type: 'tuning_control' }, payload)));
+    sendControl(Object.assign({ type: 'tuning_control' }, payload));
   }
 
   // ---------------------------------------------------------------------
@@ -2663,8 +2959,7 @@
   const procPending = new Map();   // pid -> timeout id for the armed state
 
   function sendProcessControl(payload) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify(Object.assign({ type: 'process_control' }, payload)));
+    sendControl(Object.assign({ type: 'process_control' }, payload));
   }
 
 
@@ -2784,8 +3079,15 @@
   // ---------------------------------------------------------------------
 
   function sendMapControl(payload) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify(Object.assign({ type: 'map_control' }, payload)));
+    const message = Object.assign({ type: 'map_control' }, payload);
+    if (payload.action === 'clear_view') {
+      // Not a write: it only makes this browser forget its copy of the map.
+      // It goes to the relay, which answers from the map it already holds
+      // for late joiners -- the same answer the car used to give.
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
+      return;
+    }
+    sendControl(message);
   }
 
   function formatBytes(bytes) {
@@ -3498,12 +3800,12 @@
 
   // ---------------------------------------------------------------------
   // Camera feed (bottom-right inset): usb_cam_stream is a separate node
-  // on its own port (9090, see docs/usb-camera-livestream.md), not part
-  // of this WebSocket protocol at all -- an MJPEG stream is just an <img>
-  // whose connection never closes, so it's simplest to point one at it
-  // directly rather than routing frames through dashboard_node.
+  // on its own port (9090 on the car, see docs/usb-camera-livestream.md in
+  // the car repo), not part of this WebSocket protocol at all -- an MJPEG
+  // stream is just an <img> whose connection never closes. The site passes
+  // it through unchanged at /<car>/camera/stream, on this page's own
+  // origin, so there is no second host or port for the browser to reach.
   // ---------------------------------------------------------------------
-  const CAMERA_PORT = 9090;
   let cameraConnected = false;
 
   function tryCameraConnect() {
@@ -3515,8 +3817,7 @@
     // more picture than it could ever show, at 12-18 Mbit/s, competing
     // with this dashboard's own telemetry for the same WiFi link. The
     // recording view (camera.js) asks for the full tier instead.
-    cameraFeed.src =
-      `http://${location.hostname}:${CAMERA_PORT}/stream?tier=preview&_=${Date.now()}`;
+    cameraFeed.src = `${endpoints.camera}/stream?tier=preview&_=${Date.now()}`;
   }
 
   cameraFeed.addEventListener('load', () => {
@@ -3817,10 +4118,18 @@
 
   renderMeasurePanel();
 
+  // The four write paths, published for test/browser/control_link_test.js,
+  // which checks that each one reaches the control link and never the
+  // shared telemetry socket. The same pattern as __procRowPlan above.
+  window.__writeActions = {
+    sendStopwatchControl, sendTuningControl, sendProcessControl, sendMapControl,
+  };
+
   // ---------------------------------------------------------------------
   // Go
   // ---------------------------------------------------------------------
   resizeCanvasIfNeeded();
+  renderLinkDetail();
   connect();
   render();
 })();

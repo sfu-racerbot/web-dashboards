@@ -72,6 +72,18 @@
       <span id="conn-text">connecting...</span>
     </div>
 
+    <!-- The far side of the link. The page talks to a relay that everyone
+         watching shares, not to the car directly, so "connected" above only
+         means "connected to the relay". This row says whether the relay has
+         the car, how many people are watching, whether this tab holds a
+         control link, and -- in red -- if the car speaks a protocol this
+         site does not. One line, fixed height: it never grows. -->
+    <div id="link-detail">
+      <span id="relay-dot" class="dot dot-gray"></span>
+      <span id="relay-text">relay --</span>
+      <span id="control-text" class="control-text">ctl idle</span>
+    </div>
+
     <div id="panels">
       <!-- Each section is a <details> so it collapses, and so keyboard and
            screen-reader behaviour comes from the browser rather than from
