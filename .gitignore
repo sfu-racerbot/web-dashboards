@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+*.log
+# Lichtblick is built from source in CI; never commit its output or source.
+apps/advanced/.build/
