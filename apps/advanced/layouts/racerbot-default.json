@@ -1,7 +1,7 @@
 {
   "configById": {
     "3D!racerbot-3d": {
-      "foxglovePanelTitle": "Map, scan and pose (fixed frame: map)",
+      "lichtblickPanelTitle": "Map, scan and pose (fixed frame: map)",
       "followTf": "map",
       "followMode": "follow-none",
       "scene": {
@@ -52,13 +52,13 @@
       "imageMode": {}
     },
     "Image!racerbot-camera": {
-      "foxglovePanelTitle": "Camera (TODO: confirm the compressed topic)",
+      "lichtblickPanelTitle": "Camera (TODO: confirm the compressed topic)",
       "imageMode": {
         "imageTopic": "/camera/camera/color/image_raw/compressed"
       }
     },
     "Plot!racerbot-speed": {
-      "foxglovePanelTitle": "Speed: commanded vs measured",
+      "lichtblickPanelTitle": "Speed: commanded vs measured",
       "paths": [
         {
           "value": "/ackermann_cmd.drive.speed",
@@ -83,7 +83,6 @@
       "followingViewWidth": 30
     },
     "RawMessages!racerbot-intent": {
-      "foxglovePanelTitle": "Drive intent (JSON in .data)",
       "topicPath": "/drive_intent",
       "diffTopicPath": "",
       "diffMethod": "custom",
@@ -91,10 +90,10 @@
       "showFullMessageForDiff": false
     },
     "Parameters!racerbot-params": {
-      "foxglovePanelTitle": "Parameters"
+      "lichtblickPanelTitle": "Parameters"
     },
     "CallService!racerbot-service": {
-      "foxglovePanelTitle": "Service call (read-only example)",
+      "lichtblickPanelTitle": "Service call (read-only example)",
       "serviceName": "/pure_pursuit_node/get_parameters",
       "requestPayload": "{\n  \"names\": [\"max_speed\", \"lookahead_distance\"]\n}",
       "layout": "vertical",
