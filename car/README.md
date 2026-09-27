@@ -167,6 +167,8 @@ The site and the car have a small agreement, the **car contract**: the car's fir
 
 ## Troubleshooting
 
+**Start here:** open `https://dashboard.sfuracerbot.ca/rb2/check` (your car's id in place of `rb2`). The site tries each hop to the car with its real service token and says which one fails, and how to fix it.
+
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `check.sh`: a port is `MISSING` | that service is not running | `journalctl -u racerbot-<name> -n 50` shows why. A workspace not built, or the wrong path given to `install.sh`, are the usual reasons |

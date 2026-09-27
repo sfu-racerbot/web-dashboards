@@ -129,6 +129,8 @@ With the car on and its tunnel, `dashboard_node`, `foxglove_bridge` and camera r
 3. Open **Advanced** in Chrome or Edge. **Working when:** Lichtblick opens already connected to `wss://dashboard.sfuracerbot.ca/rb2/bridge` and the topic list fills in.
 4. In the Cloudflare dashboard, **Workers & Pages** > `racerbot-dashboard` > **Observability** (logs). **Working when:** you see `upstream_connect` for `rb2` and a `bridge_connect` with your email.
 
+**If anything fails, open https://dashboard.sfuracerbot.ca/rb2/check first.** It tests every hop from the site to the car and names the step to fix.
+
 **If Simple says `CAR OFFLINE`:** the relay could not reach the car. The row's tooltip, and the `upstream_failed` log line, say why: a secret not set (step 6), an origin answering 401/403 (step 2 or 4), or the car's dashboard_node not running.
 
 ## Adding a car
