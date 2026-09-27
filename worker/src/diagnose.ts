@@ -7,7 +7,7 @@
 // response body beyond the first few hundred bytes (to spot Cloudflare's
 // numbered error pages).
 
-import { CAR_WS_PATH, serviceToken, type CarConfig, type Env } from "./config";
+import { CAR_WS_PATH, serviceToken, tokenShape, type CarConfig, type Env } from "./config";
 
 export interface HopResult {
   name: string;
@@ -57,7 +57,12 @@ export function explain(
     return {
       ok: false,
       meaning: "Cloudflare Access sent the Worker to a login page instead of letting its service token in.",
-      fix: "In the origin Access application (setup step 2), the policy's Action must be Service Auth, and its Include rule must name this service token.",
+      fix: "Zero Trust > Access controls > Applications: open the application for the car's -origin hostnames (setup step 2). "
+        + "(1) Its policy's Action must be Service Auth -- not Allow -- with an Include rule of Service Token = the token whose "
+        + "values are in the Worker secrets. (2) No other Access application may cover these hostnames (for example a "
+        + "*.sfuracerbot.ca one with your email list). (3) The token must not be expired. Tip: turn on \"401 Response for "
+        + "Service Auth policies\" in that application's settings; then a wrong token shows here as 401, and a 302 means "
+        + "the policy/application is the problem.",
     };
   }
   if (status === 401 || status === 403) {
@@ -165,7 +170,15 @@ export async function diagnose(env: Env, carId: string, car: CarConfig): Promise
         + (nearMisses.length ? ` The Worker DOES have ${nearMisses.join(", ")}: rename to the exact names above.` : ""),
     });
   } else {
-    results.push({ name: "worker secrets", url: "", ok: true, status: null, meaning: "ACCESS_CLIENT_ID and ACCESS_CLIENT_SECRET are both set." });
+    const shape = tokenShape(token.id, token.secret);
+    results.push(shape.length
+      ? {
+        name: "worker secrets", url: "", ok: false, status: null,
+        meaning: shape.join(" "),
+        fix: "Copy the Client ID and Client Secret again from Zero Trust > Access controls > Service credentials > Service Tokens "
+          + "(a lost secret needs Rotate), and set them in Settings > Runtime variables and secrets.",
+      }
+      : { name: "worker secrets", url: "", ok: true, status: null, meaning: "ACCESS_CLIENT_ID and ACCESS_CLIENT_SECRET are both set, and look like a Client ID and a Client Secret." });
     const auth = { "CF-Access-Client-Id": token.id, "CF-Access-Client-Secret": token.secret };
     results.push(...await Promise.all([
       probe("dashboard websocket", `${car.dash_origin}${CAR_WS_PATH}?role=relay`, {

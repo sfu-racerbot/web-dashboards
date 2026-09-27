@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ConfigError, parseCars, serviceToken, upstreamIdleMs } from "../src/config";
+import { ConfigError, parseCars, serviceToken, tokenShape, upstreamIdleMs } from "../src/config";
 
 const RB2 = {
   name: "Car 2",
@@ -78,5 +78,27 @@ describe("upstreamIdleMs", () => {
     expect(upstreamIdleMs({ UPSTREAM_IDLE_SEC: "0" })).toBe(0);
     expect(upstreamIdleMs({ UPSTREAM_IDLE_SEC: "junk" })).toBe(60_000);
     expect(upstreamIdleMs({ UPSTREAM_IDLE_SEC: "-3" })).toBe(60_000);
+  });
+});
+
+
+describe("tokenShape", () => {
+  const id = "0123456789abcdef0123456789abcdef.access";
+  const secret = "cfast_" + "a".repeat(48);
+  it("passes a real-looking pair and says nothing about the values", () => {
+    expect(tokenShape(id, secret)).toEqual([]);
+  });
+  it("spots swapped values", () => {
+    expect(tokenShape(secret, id).join(" ")).toMatch(/swapped/);
+  });
+  it("spots a Client ID that is not one, and a short secret", () => {
+    expect(tokenShape("nope", secret).join(" ")).toMatch(/\.access/);
+    expect(tokenShape(id, "short").join(" ")).toMatch(/only 5 characters/);
+  });
+  it("never echoes a value", () => {
+    expect(tokenShape("abc-sensitive", "xyz-sensitive").join(" ")).not.toMatch(/sensitive/);
+  });
+  it("serviceToken trims pasted whitespace", () => {
+    expect(serviceToken({ ACCESS_CLIENT_ID: ` ${id}\n`, ACCESS_CLIENT_SECRET: `${secret} ` })).toEqual({ ok: true, id, secret });
   });
 });

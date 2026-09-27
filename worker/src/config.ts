@@ -111,7 +111,31 @@ export function upstreamIdleMs(env: Pick<Env, "UPSTREAM_IDLE_SEC">): number {
  */
 export function serviceToken(env: Pick<Env, "ACCESS_CLIENT_ID" | "ACCESS_CLIENT_SECRET">):
   { ok: true; id: string; secret: string } | { ok: false; missing: string } {
-  if (!env.ACCESS_CLIENT_ID) return { ok: false, missing: "ACCESS_CLIENT_ID" };
-  if (!env.ACCESS_CLIENT_SECRET) return { ok: false, missing: "ACCESS_CLIENT_SECRET" };
-  return { ok: true, id: env.ACCESS_CLIENT_ID, secret: env.ACCESS_CLIENT_SECRET };
+  // Trimmed: a value pasted into the dashboard with a trailing space or
+  // newline would otherwise be sent as-is and silently refused by Access.
+  const id = (env.ACCESS_CLIENT_ID ?? "").trim();
+  const secret = (env.ACCESS_CLIENT_SECRET ?? "").trim();
+  if (!id) return { ok: false, missing: "ACCESS_CLIENT_ID" };
+  if (!secret) return { ok: false, missing: "ACCESS_CLIENT_SECRET" };
+  return { ok: true, id, secret };
+}
+
+/**
+ * Does each stored value look like what it should be? Never returns any
+ * part of a value -- only yes/no observations -- so it is safe to show.
+ * Client IDs end in ".access"; secrets are long and never do.
+ */
+export function tokenShape(id: string, secret: string): string[] {
+  const problems: string[] = [];
+  if (!id.endsWith(".access")) {
+    problems.push(secret.endsWith(".access")
+      ? "ACCESS_CLIENT_ID and ACCESS_CLIENT_SECRET look swapped: the secret ends in .access, which only a Client ID does."
+      : "ACCESS_CLIENT_ID does not end in \".access\", as every Access Client ID does. It may be the wrong value.");
+  }
+  if (secret.endsWith(".access")) {
+    if (id.endsWith(".access")) problems.push("ACCESS_CLIENT_SECRET ends in .access, like a Client ID. It should be the Client Secret.");
+  } else if (secret.length < 40) {
+    problems.push(`ACCESS_CLIENT_SECRET is only ${secret.length} characters; Access Client Secrets are much longer. It may be cut short.`);
+  }
+  return problems;
 }
