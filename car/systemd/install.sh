@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
-# Start the car's three web-facing services at boot, as systemd services.
+# Start foxglove_bridge at boot -- the ONLY service this repo installs.
 #
 #   sudo car/systemd/install.sh <user> <workspace>
 #   e.g. sudo car/systemd/install.sh racerbot /home/racerbot/racerbot-ws
 #
-# <user> runs the services (the account that owns the ROS 2 workspace);
-# <workspace> is the colcon workspace that contains web_dashboard and
-# usb_cam_stream, already built.
+# <user> runs the service (the account that owns the ROS 2 workspace);
+# <workspace> is the colcon workspace that has web_dashboard built into it.
 #
-# Installs, enables and starts:
-#   racerbot-dashboard        ros2 launch web_dashboard web_dashboard_launch.py  (port 8080)
-#   racerbot-camera           ros2 launch usb_cam_stream usb_cam_stream_launch.py (port 9090)
-#   racerbot-foxglove-bridge  foxglove_bridge on localhost:8765
+# Installs /etc/systemd/system/foxglove-bridge.service, pointing at
+# foxglove-bridge.sh in THIS folder (so keep this checkout where it is),
+# enables it, and (re)starts it so a changed unit takes effect now.
 #
-# None of these publishes a drive command, so none of them can move the car:
-# the car repo documents web_dashboard and usb_cam_stream as safe to leave
-# running at all times, and the bridge lets a browser publish to no topic at all.
+# dashboard_node and the camera are NOT installed as services: you start
+# them by hand when you want them (car/README.md). Earlier versions of this
+# script installed racerbot-dashboard, racerbot-camera and
+# racerbot-foxglove-bridge; see car/README.md for removing those.
+#
+# The bridge cannot move the car: browsers can publish to no topic at all
+# (config/foxglove_bridge.yaml in web_dashboard, and its test).
 set -euo pipefail
 
 if [ "$(id -u)" -ne 0 ]; then echo "run with sudo" >&2; exit 1; fi
@@ -27,14 +29,15 @@ if [ ! -f "$workspace/install/setup.bash" ]; then
   echo "$workspace/install/setup.bash not found -- build the workspace first (colcon build --symlink-install)" >&2
   exit 1
 fi
+if [ ! -d "$workspace/install/web_dashboard" ]; then
+  echo "$workspace/install/web_dashboard not found -- web_dashboard is not built in that workspace" >&2
+  exit 1
+fi
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-install -d -m 0755 /etc/racerbot
-install -m 0644 "$here/../foxglove_bridge/racerbot_foxglove_bridge_launch.xml" /etc/racerbot/
-
-for unit in racerbot-dashboard racerbot-camera racerbot-foxglove-bridge; do
-  sed -e "s|@USER@|$user|g" -e "s|@WORKSPACE@|$workspace|g" "$here/$unit.service" > "/etc/systemd/system/$unit.service"
-done
+sed -e "s|@USER@|$user|g" -e "s|@WORKSPACE@|$workspace|g" -e "s|@HERE@|$here|g" \
+  "$here/foxglove-bridge.service" > /etc/systemd/system/foxglove-bridge.service
 systemctl daemon-reload
-systemctl enable --now racerbot-dashboard racerbot-camera racerbot-foxglove-bridge
-systemctl --no-pager --lines=3 status racerbot-dashboard racerbot-camera racerbot-foxglove-bridge || true
+systemctl enable foxglove-bridge
+systemctl restart foxglove-bridge
+systemctl --no-pager --lines=5 status foxglove-bridge || true

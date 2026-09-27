@@ -1,0 +1,37 @@
+# foxglove_bridge for Lichtblick (the site's Advanced dashboard), at boot.
+# THE ONLY THING IN THIS REPO THAT STARTS AT BOOT. dashboard_node and the
+# camera are started by hand (car/README.md).
+#
+# A template: car/systemd/install.sh fills in the user, the workspace and
+# this folder's absolute path, and installs the result as
+# /etc/systemd/system/foxglove-bridge.service.
+#
+# Listens on 127.0.0.1:8765 only; the Cloudflare Tunnel
+# (<car>-bridge-origin.<your domain>) is the only way in from off the car.
+# Browsers can publish to NO topic (car/docs/foxglove-bridge.md).
+[Unit]
+Description=foxglove_bridge (Lichtblick access, loopback only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# The same user every other ROS node on the car runs as, so Fast DDS's
+# shared-memory transport and discovery work exactly as between terminals.
+User=@USER@
+Group=@USER@
+Environment=HOME=/home/@USER@
+# The colcon workspace that has web_dashboard built into it.
+Environment=RACERBOT_WS=@WORKSPACE@
+# Optional overrides, e.g. ROS_DOMAIN_ID=... if the car's stack ever sets
+# one. The leading '-' means "fine if the file does not exist".
+EnvironmentFile=-/etc/default/foxglove-bridge
+ExecStart=@HERE@/foxglove-bridge.sh
+# SIGINT is what Ctrl+C sends; ros2 launch shuts its node down cleanly on it.
+KillSignal=SIGINT
+TimeoutStopSec=10
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
