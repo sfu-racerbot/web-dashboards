@@ -18,6 +18,12 @@ export interface HopResult {
   fix?: string;
 }
 
+export const WAF_FIX =
+  "In Security > WAF > Custom rules (or Security rules), edit the challenge rule so it does not apply to "
+  + "the Worker's own requests: add `and cf.worker.upstream_zone != \"sfuracerbot.ca\"` to the end of its expression. "
+  + "The car's -origin hostnames are already closed to everyone but the Worker by their Service Auth Access policy. "
+  + "See docs/cloudflare-setup.md, \"If your zone has a WAF challenge rule\".";
+
 /** Cloudflare's own error pages carry "error code: 1033" or "Error 1033". */
 export function cloudflareErrorCode(body: string): number | null {
   const match = /error(?: code)?:?\s*(1\d{3})/i.exec(body);
@@ -30,7 +36,22 @@ export function explain(
   status: number,
   location: string | null,
   errorCode: number | null,
+  mitigated: string | null = null,
 ): { ok: boolean; meaning: string; fix?: string } {
+  if (mitigated === "challenge") {
+    return {
+      ok: false,
+      meaning: "A Cloudflare WAF / bot challenge answered instead of the car. The Worker cannot solve a challenge the way a browser can, so the zone's challenge rule is stopping the site at the car's hostname.",
+      fix: WAF_FIX,
+    };
+  }
+  if (errorCode === 1020) {
+    return {
+      ok: false,
+      meaning: "A Cloudflare WAF rule blocked the Worker's request to the car (error 1020).",
+      fix: WAF_FIX,
+    };
+  }
   const accessLogin = location !== null && /cloudflareaccess\.com/.test(location);
   if (accessLogin) {
     return {
@@ -117,7 +138,8 @@ async function probe(
     response.webSocket.accept();
     response.webSocket.close(1000, "check done");
   }
-  const verdict = explain(hop, response.status, response.headers.get("Location"), cloudflareErrorCode(body));
+  const verdict = explain(hop, response.status, response.headers.get("Location"), cloudflareErrorCode(body),
+    response.headers.get("cf-mitigated"));
   return { name: hop, url, status: response.status, ...verdict };
 }
 

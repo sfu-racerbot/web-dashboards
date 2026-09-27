@@ -25,6 +25,7 @@ import { DurableObject } from "cloudflare:workers";
 import { LateJoinerCache, shouldBroadcast, type Outgoing } from "./cache";
 import { CAR_WS_PATH, parseCars, serviceToken, upstreamIdleMs, type Env } from "./config";
 import { Framer } from "./framing";
+import { refusalReason } from "./proxy";
 import {
   RELAY_PING, RELAY_PONG, earliest, mapCleared, nextBackoff, relayError, relayStatus,
 } from "./relay-messages";
@@ -263,7 +264,7 @@ export class CarRelay extends DurableObject<Env> {
       }
       const ws = response.webSocket;
       if (!ws) {
-        return this.upstreamFailed(`car ${this.car} unreachable: its origin answered HTTP ${response.status}`);
+        return this.upstreamFailed(`car ${this.car} unreachable: ${refusalReason(response)}`);
       }
       ws.binaryType = "arraybuffer";
       ws.accept();

@@ -22,6 +22,14 @@ describe("/<car>/check", () => {
     expect(explain("dashboard websocket", 404, null, null).fix).toMatch(/localhost:8080/);
   });
 
+  it("spots a WAF/bot challenge or block before blaming Access", () => {
+    const challenged = explain("dashboard websocket", 403, null, null, "challenge");
+    expect(challenged.ok).toBe(false);
+    expect(challenged.meaning).toMatch(/challenge/);
+    expect(challenged.fix).toMatch(/cf\.worker\.upstream_zone/);
+    expect(explain("camera", 403, null, 1020).fix).toMatch(/cf\.worker\.upstream_zone/);
+  });
+
   it("recognises working answers", () => {
     expect(explain("dashboard websocket", 101, null, null).ok).toBe(true);
     expect(explain("dashboard", 200, null, null).ok).toBe(true);

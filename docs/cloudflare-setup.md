@@ -133,6 +133,30 @@ With the car on and its tunnel, `dashboard_node`, `foxglove_bridge` and camera r
 
 **If Simple says `CAR OFFLINE`:** the relay could not reach the car. The row's tooltip, and the `upstream_failed` log line, say why: a secret not set (step 6), an origin answering 401/403 (step 2 or 4), or the car's dashboard_node not running.
 
+## If your zone has a WAF challenge rule — 👤 Dashboard
+
+**A zone-wide bot or WAF challenge stops the site from reaching the car.** The site's Worker talks to the car's `-origin` hostnames, which are in the same zone, and Cloudflare runs those requests through the zone's security rules like any visitor's. A browser can solve a challenge; a Worker cannot. So the Worker gets a challenge page back, and the car shows as offline.
+
+`/rb2/check` names this directly: "A Cloudflare WAF / bot challenge answered instead of the car".
+
+**The fix:** let the Worker's own requests past the rule. Everything else stays challenged.
+
+1. Go to **Security rules** for `sfuracerbot.ca`, and edit the rule that challenges.
+2. Select **Edit expression**, and add this to the end of the expression:
+
+   ```txt
+   and cf.worker.upstream_zone != "sfuracerbot.ca"
+   ```
+
+   Keep the brackets around the existing expression if it has more than one condition, for example `(… existing …) and cf.worker.upstream_zone != "sfuracerbot.ca"`.
+3. Select **Deploy**.
+
+**Working when:** `/rb2/check` shows every hop as ok, and Simple reads `CAR ONLINE`.
+
+**Why this is safe.** `cf.worker.upstream_zone` is set by Cloudflare, not by the request: only a Worker running on `sfuracerbot.ca` gets that value, so nobody can fake it from outside. The car's `-origin` hostnames also stay locked to the site's service token by their Access policy (step 2), challenge or not. Visitors to `dashboard.sfuracerbot.ca` are still challenged as before. The same field is what [Cloudflare's own WAF docs](https://developers.cloudflare.com/waf/rate-limiting-rules/troubleshooting/) use to exclude same-zone Worker requests from a rule.
+
+If you would rather not touch the zone-wide rule, the alternative is to exclude the car hostnames instead: `and not http.host in {"rb2-dash-origin.sfuracerbot.ca" "rb2-bridge-origin.sfuracerbot.ca" "rb2-cam-origin.sfuracerbot.ca"}`. That has to be extended for every new car, which is why the Worker-based condition above is the recommended one.
+
 ## Adding a car
 
 For a car `rb3`:

@@ -15,6 +15,14 @@ export interface PassthroughOptions {
   user?: string;
 }
 
+/** Why a car origin refused, when Cloudflare itself (not the car) did the refusing. */
+export function refusalReason(response: Response): string {
+  if (response.headers.get("cf-mitigated") === "challenge") {
+    return "a Cloudflare WAF/bot challenge on the car's hostname blocked the site (see /<car>/check)";
+  }
+  return `its origin answered HTTP ${response.status}`;
+}
+
 /** Cloudflare's own "could not reach the origin" answers (tunnel down, etc.). */
 function isEdgeOriginFailure(status: number): boolean {
   return status === 502 || status === 503 || status === 504 || (status >= 520 && status <= 530);
@@ -51,7 +59,7 @@ export async function passthroughWebSocket(request: Request, opts: PassthroughOp
     return unreachable(opts.car, (err as Error).message);
   }
   if (response.status !== 101 || !response.webSocket) {
-    return unreachable(opts.car, `its origin answered HTTP ${response.status} instead of a WebSocket`);
+    return unreachable(opts.car, `${refusalReason(response)} instead of a WebSocket`);
   }
   return response;
 }
@@ -68,8 +76,8 @@ export async function passthroughHttp(request: Request, opts: PassthroughOptions
   } catch (err) {
     return unreachable(opts.car, (err as Error).message);
   }
-  if (isEdgeOriginFailure(response.status)) {
-    return unreachable(opts.car, `its origin answered HTTP ${response.status}`);
+  if (isEdgeOriginFailure(response.status) || response.headers.get("cf-mitigated") === "challenge") {
+    return unreachable(opts.car, refusalReason(response));
   }
   return response;
 }
@@ -124,7 +132,7 @@ export async function bridge(
   }
   const upstream = response.webSocket;
   if (response.status !== 101 || !upstream) {
-    return unreachable(opts.car, `its origin answered HTTP ${response.status} instead of a WebSocket`);
+    return unreachable(opts.car, `${refusalReason(response)} instead of a WebSocket`);
   }
   const pair = new WebSocketPair();
   const [client, server] = [pair[0], pair[1]];
