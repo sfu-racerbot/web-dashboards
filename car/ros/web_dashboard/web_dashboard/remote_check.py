@@ -1,8 +1,9 @@
 """
-"Why isn't dashboard.sfuracerbot.ca reaching this car?" -- answered from
-the car, one hop at a time, each with a plain-language fix.
+"Why isn't the dashboard site reaching this car?" -- answered from the
+car, one hop at a time, each with a plain-language fix.
 
-    ros2 run web_dashboard remote_check          # or: python3 -m web_dashboard.remote_check
+    ros2 run web_dashboard remote_check --site https://<your site> --car <car id>
+    # SFU Racerbot car 2: --site https://dashboard.sfuracerbot.ca --car rb2
 
 Read-only and safe any time: it opens one relay WebSocket to the local
 dashboard (read-only by definition), makes plain HTTPS GETs to the public
@@ -35,14 +36,17 @@ import time
 import urllib.error
 import urllib.request
 
-SITE_ORIGIN = 'https://dashboard.sfuracerbot.ca'
-DOMAIN = 'sfuracerbot.ca'
-# The tunnel contract, docs/web-dashboard.md "What runs where".
-ORIGINS = {
-    'rb2-dash-origin': (8080, 'dashboard_node'),
-    'rb2-bridge-origin': (8765, 'foxglove_bridge'),
-    'rb2-cam-origin': (9090, 'usb_cam_stream (camera)'),
+# The tunnel contract (car/README.md, "Point the car's hostnames at the
+# three ports"): each car has three origin hostnames, <car>-<suffix>.<domain>,
+# and the tunnel sends each to one local port.
+ORIGIN_SUFFIXES = {
+    'dash-origin': (8080, 'dashboard_node'),
+    'bridge-origin': (8765, 'foxglove_bridge'),
+    'cam-origin': (9090, 'usb_cam_stream (camera)'),
 }
+
+USAGE_EXAMPLE = ('ros2 run web_dashboard remote_check '
+                 '--site https://dashboard.example.org --car rb2')
 
 OK, WARN, FAIL = 'ok', 'WARN', 'FAIL'
 
@@ -66,9 +70,49 @@ def classify_listener(port, local_addresses):
     return (OK, f'port {port} listening on {", ".join(sorted(hosts))}', None)
 
 
-def classify_edge(status, headers, body_start):
+def parse_args(argv):
+    """Command line -> (site_origin, car, domain). Raises SystemExit(2) with
+    a usage message on anything it cannot use.
+
+    --site is the site's origin exactly as the dashboard's allowed_origins
+    holds it (https://host, no path). --domain defaults to the site's host
+    minus its first label: dashboard.sfuracerbot.ca -> sfuracerbot.ca,
+    which is where the car's <car>-*-origin hostnames live.
+    """
+    import argparse
+    parser = argparse.ArgumentParser(
+        prog='remote_check',
+        description='Test each hop between the dashboard site and this car. Read-only.',
+        epilog=f'example: {USAGE_EXAMPLE}')
+    parser.add_argument('--site', required=True,
+                        help='the site origin, e.g. https://dashboard.example.org')
+    parser.add_argument('--car', required=True,
+                        help="this car's id in the site's CARS list, e.g. rb2")
+    parser.add_argument('--domain', default=None,
+                        help='where the <car>-*-origin hostnames live '
+                             '(default: the site host minus its first label)')
+    args = parser.parse_args(argv)
+    match = re.fullmatch(r'https://([a-z0-9-]+(?:\.[a-z0-9-]+)+)', args.site.strip().lower())
+    if not match:
+        parser.error(f'--site must be exactly https://host, no path or slash: {args.site!r}')
+    if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', args.car):
+        parser.error(f'--car must be a lower-case id like rb2: {args.car!r}')
+    host = match.group(1)
+    domain = args.domain or host.split('.', 1)[1]
+    if '.' not in domain:
+        parser.error(f'cannot infer the domain from {host!r}; pass --domain')
+    return f'https://{host}', args.car, domain
+
+
+def origin_hosts(car):
+    """{'<car>-dash-origin': (8080, 'dashboard_node'), ...}"""
+    return {f'{car}-{suffix}': port_name for suffix, port_name in ORIGIN_SUFFIXES.items()}
+
+
+def classify_edge(status, headers, body_start, check_url=None):
     """How Cloudflare's edge answered an UNAUTHENTICATED GET to one origin
-    hostname -> (status, message, fix).
+    hostname -> (status, message, fix). `check_url` is the site's
+    /<car>/check page, named in the fix for a bot challenge.
 
     `headers` is a dict with lower-case keys. What we WANT to see is Access
     refusing us (we sent no service token). Anything that answers before
@@ -85,7 +129,8 @@ def classify_edge(status, headers, body_start):
         # which is why it is a warning rather than ok.
         return (WARN, 'Cloudflare shows this checker a bot challenge ("Just a moment..."), so it '
                       'cannot see whether Access is in front. The site\'s Worker is not affected by it',
-                'confirm from the Worker\'s side: https://dashboard.sfuracerbot.ca/rb2/check')
+                'confirm from the Worker\'s side: '
+                + (check_url or "the site's /<car>/check page"))
     code = cloudflare_error_code(body)
     if code == 1016 or code == 1001:
         return (FAIL, f'Cloudflare has no DNS/route for this hostname (error {code})',
@@ -125,13 +170,13 @@ def parse_ingress(journal_text):
             for r in config.get('ingress', [])]
 
 
-def classify_ingress(ingress, host, port):
+def classify_ingress(ingress, host, port, domain):
     if ingress is None:
         return (WARN, 'could not read the tunnel configuration from cloudflared\'s journal',
                 'journalctl -u cloudflared | grep "new configuration"')
-    services = [svc for h, svc in ingress if h == f'{host}.{DOMAIN}']
+    services = [svc for h, svc in ingress if h == f'{host}.{domain}']
     if not services:
-        return (FAIL, f'the tunnel has no route for {host}.{DOMAIN}',
+        return (FAIL, f'the tunnel has no route for {host}.{domain}',
                 f'Zero Trust > Networks > Tunnels > Public Hostname: add it -> HTTP 127.0.0.1:{port}')
     if not re.search(rf'//(127\.0\.0\.1|localhost):{port}$', services[0]):
         return (FAIL, f'the route points at {services[0]}, not port {port}',
@@ -185,12 +230,12 @@ def _public_get(url):
             err.read(600).decode('utf-8', 'replace')
 
 
-async def _local_relay_frames(port):
+async def _local_relay_frames(port, site_origin, dash_host):
     import tornado.httpclient
     import tornado.websocket
     request = tornado.httpclient.HTTPRequest(
         f'ws://127.0.0.1:{port}/ws?role=relay',
-        headers={'Origin': SITE_ORIGIN, 'Host': f'rb2-dash-origin.{DOMAIN}',
+        headers={'Origin': site_origin, 'Host': dash_host,
                  'X-Racerbot-Role': 'relay'})
     ws = await tornado.websocket.websocket_connect(request)
     frames = []
@@ -215,20 +260,28 @@ def _print(label, verdict):
 
 
 def main(argv=None):
+    site_origin, car, domain = parse_args(sys.argv[1:] if argv is None else argv)
+    origins = origin_hosts(car)
+    check_url = f'{site_origin}/{car}/check'
+    site_host = site_origin.split('://', 1)[1]
+    print(f'site {site_origin}, car {car}, origin hostnames under {domain}\n')
+
     statuses = []
     print('1. services on the car (the tunnel dials 127.0.0.1)')
     addresses = _local_addresses()
-    for host, (port, name) in ORIGINS.items():
+    for host, (port, name) in origins.items():
         statuses.append(_print(name, classify_listener(port, addresses)))
 
     print('2. local dashboard, as the site\'s relay connects')
     try:
-        frames = asyncio.run(_local_relay_frames(8080))
+        frames = asyncio.run(_local_relay_frames(
+            8080, site_origin, f'{car}-dash-origin.{domain}'))
         statuses.append(_print('relay handshake', classify_hello(frames)))
     except Exception as exc:  # noqa: BLE001 -- report, never crash the checker
         statuses.append(_print('relay handshake', (
             FAIL, f'{type(exc).__name__}: {exc}',
-            '403 = allowed_origins; 400 = role header; refused = dashboard not running')))
+            f'403 = {site_origin} is not in allowed_origins; 400 = role header; '
+            f'refused = dashboard not running')))
 
     print('3. tunnel (cloudflared)')
     active = subprocess.run(['systemctl', 'is-active', 'cloudflared'],
@@ -239,22 +292,22 @@ def main(argv=None):
                               '--no-pager', '-o', 'cat'],
                              capture_output=True, text=True).stdout
     ingress = parse_ingress(journal)
-    for host, (port, _) in ORIGINS.items():
-        statuses.append(_print(f'route {host}', classify_ingress(ingress, host, port)))
+    for host, (port, _) in origins.items():
+        statuses.append(_print(f'route {host}', classify_ingress(ingress, host, port, domain)))
 
     print('4. public DNS and Cloudflare edge (no credentials sent)')
-    for host in ['dashboard'] + list(ORIGINS):
-        fqdn = f'{host}.{DOMAIN}'
+    for fqdn in [site_host] + [f'{host}.{domain}' for host in origins]:
         try:
             socket.getaddrinfo(fqdn, 443)
         except socket.gaierror:
+            label = fqdn.split('.', 1)[0]
             statuses.append(_print(fqdn, (
                 FAIL, 'does not resolve (no DNS record)',
-                f'DNS > add CNAME {host} -> <tunnel-id>.cfargotunnel.com, proxied '
+                f'DNS > add CNAME {label} -> <tunnel-id>.cfargotunnel.com, proxied '
                 f'(re-saving the tunnel\'s public hostname usually creates it)')))
             continue
         try:
-            verdict = classify_edge(*_public_get(f'https://{fqdn}/'))
+            verdict = classify_edge(*_public_get(f'https://{fqdn}/'), check_url=check_url)
         except Exception as exc:  # noqa: BLE001
             verdict = (FAIL, f'{type(exc).__name__}: {exc}', None)
         statuses.append(_print(fqdn, verdict))
@@ -268,13 +321,13 @@ def main(argv=None):
     events = recent_remote_events(lines, time.time() - 86400)
     if not events:
         print('  WARN  none -- nothing from the site has reached the dashboard. '
-              'The fault is upstream of the car (sections 3-4, or the site\'s /rb2/check).')
+              f'The fault is upstream of the car (sections 3-4, or {check_url}).')
     for stamp, text in events[-12:]:
         print(f'        {time.strftime("%H:%M:%S", time.localtime(stamp))}  {text[:150]}')
 
     failed = statuses.count(FAIL)
     print(f'\n{failed} problem(s) found.' if failed else '\nEverything this car can check is fine; '
-          'open https://dashboard.sfuracerbot.ca/rb2/check for the Worker\'s side.')
+          f'open {check_url} for the Worker\'s side.')
     return 1 if failed else 0
 
 

@@ -5,19 +5,26 @@ Oracles: the responses recorded from this car on 2026-09-27 (a zone-wide
 bot challenge answering `cf-mitigated: challenge` + "Just a moment...", and
 cloudflared's own journal lines), Cloudflare's documented error codes
 (1016 no DNS/route, 1033 tunnel down, 530 origin unreachable), and the
-tunnel contract in docs/web-dashboard.md "What runs where". The FAIL
+tunnel contract in car/README.md (three <car>-*-origin hostnames, one
+port each). The FAIL
 verdicts are the half that matters (A8): a checker that says "ok" to a
 broken hop sends people looking in the wrong place.
 
-    python3 -m pytest src/web_dashboard/test/test_remote_check.py -v
+    python3 -m pytest car/ros/web_dashboard/test/test_remote_check.py -v
 """
 import pytest
 
 from web_dashboard.remote_check import (
     FAIL, OK, WARN,
     classify_edge, classify_hello, classify_ingress, classify_listener,
-    cloudflare_error_code, parse_ingress, recent_remote_events,
+    cloudflare_error_code, origin_hosts, parse_args, parse_ingress,
+    recent_remote_events,
 )
+
+# The recordings below are from SFU Racerbot car 2: car id rb2 on the site
+# https://dashboard.sfuracerbot.ca, origin hostnames under sfuracerbot.ca.
+DOMAIN = 'sfuracerbot.ca'
+CHECK_URL = 'https://dashboard.sfuracerbot.ca/rb2/check'
 
 # Recorded 2026-09-27 from `curl https://rb2-dash-origin.sfuracerbot.ca/ws`.
 CHALLENGE_HEADERS = {'cf-mitigated': 'challenge', 'server': 'cloudflare'}
@@ -38,10 +45,11 @@ def test_a_bot_challenge_is_a_warning_not_ok_and_not_a_failure():
     relay connection #3). An earlier version of this test asserted FAIL on
     the assumption that the Worker would be challenged too; that
     measurement disproved it."""
-    status, message, fix = classify_edge(403, CHALLENGE_HEADERS, CHALLENGE_BODY)
+    status, message, fix = classify_edge(403, CHALLENGE_HEADERS, CHALLENGE_BODY,
+                                         check_url=CHECK_URL)
     assert status == WARN
     assert 'challenge' in message
-    assert '/rb2/check' in fix
+    assert CHECK_URL in fix
 
 
 @pytest.mark.parametrize('headers, body', [
@@ -130,16 +138,25 @@ def test_an_unreadable_journal_is_none(text):
 
 def test_ingress_verdicts():
     ingress = parse_ingress(JOURNAL)
-    assert classify_ingress(ingress, 'rb2-dash-origin', 8080)[0] == OK
-    assert classify_ingress(ingress, 'rb2-bridge-origin', 8765)[0] == FAIL   # no route
-    wrong_port = classify_ingress(ingress, 'rb2-cam-origin', 9090)
+    assert classify_ingress(ingress, 'rb2-dash-origin', 8080, DOMAIN)[0] == OK
+    assert classify_ingress(ingress, 'rb2-bridge-origin', 8765, DOMAIN)[0] == FAIL   # no route
+    wrong_port = classify_ingress(ingress, 'rb2-cam-origin', 9090, DOMAIN)
     assert wrong_port[0] == FAIL and '9091' in wrong_port[1]
-    assert classify_ingress(None, 'rb2-dash-origin', 8080)[0] == WARN
+    assert classify_ingress(None, 'rb2-dash-origin', 8080, DOMAIN)[0] == WARN
+
+
+def test_a_route_under_another_domain_is_not_this_cars_route():
+    """The domain is part of the match: the same journal read for a team
+    whose hostnames live elsewhere finds no route, not car 2's."""
+    ingress = parse_ingress(JOURNAL)
+    verdict = classify_ingress(ingress, 'rb2-dash-origin', 8080, 'example.org')
+    assert verdict[0] == FAIL
+    assert 'rb2-dash-origin.example.org' in verdict[1]
 
 
 def test_a_route_to_a_port_that_merely_starts_the_same_is_wrong():
     ingress = [('rb2-dash-origin.sfuracerbot.ca', 'http://127.0.0.1:80800')]
-    assert classify_ingress(ingress, 'rb2-dash-origin', 8080)[0] == FAIL
+    assert classify_ingress(ingress, 'rb2-dash-origin', 8080, DOMAIN)[0] == FAIL
 
 
 # --------------------------------------------------------------------------
@@ -192,3 +209,51 @@ def test_duplicate_lines_from_two_log_files_count_once():
 
 def test_no_lines_means_no_events():
     assert recent_remote_events([], 0) == []
+
+
+# --------------------------------------------------------------------------
+# Which site and car to check (the command line)
+# --------------------------------------------------------------------------
+# Oracle: the tunnel contract -- <car>-dash-origin, -bridge-origin and
+# -cam-origin under the site's parent domain, on 8080, 8765 and 9090
+# (car/README.md) -- and the allowed_origins format (origins.py: exactly
+# scheme://host, no path, no trailing slash).
+
+def test_car_2s_real_arguments_give_its_real_hostnames():
+    assert parse_args(['--site', 'https://dashboard.sfuracerbot.ca', '--car', 'rb2']) == (
+        'https://dashboard.sfuracerbot.ca', 'rb2', 'sfuracerbot.ca')
+    assert origin_hosts('rb2') == {
+        'rb2-dash-origin': (8080, 'dashboard_node'),
+        'rb2-bridge-origin': (8765, 'foxglove_bridge'),
+        'rb2-cam-origin': (9090, 'usb_cam_stream (camera)'),
+    }
+
+
+def test_another_teams_site_is_checked_under_its_own_domain():
+    site, car, domain = parse_args(['--site', 'https://dash.team.example.org', '--car', 'car7'])
+    assert (site, car, domain) == ('https://dash.team.example.org', 'car7', 'team.example.org')
+    assert set(origin_hosts(car)) == {'car7-dash-origin', 'car7-bridge-origin', 'car7-cam-origin'}
+
+
+def test_an_explicit_domain_wins():
+    assert parse_args(['--site', 'https://dashboard.a.org', '--car', 'x',
+                       '--domain', 'b.net'])[2] == 'b.net'
+
+
+@pytest.mark.parametrize('argv', [
+    [],                                                            # nothing
+    ['--car', 'rb2'],                                              # no site
+    ['--site', 'https://dashboard.sfuracerbot.ca'],                # no car
+    ['--site', 'https://dashboard.sfuracerbot.ca/', '--car', 'rb2'],   # trailing slash
+    ['--site', 'https://dashboard.sfuracerbot.ca/rb2', '--car', 'rb2'],  # a path
+    ['--site', 'http://dashboard.sfuracerbot.ca', '--car', 'rb2'],   # not https
+    ['--site', 'dashboard.sfuracerbot.ca', '--car', 'rb2'],          # no scheme
+    ['--site', 'https://localhost', '--car', 'rb2'],                 # no domain to infer
+    ['--site', 'https://dashboard.sfuracerbot.ca', '--car', 'RB2'],  # not an id
+    ['--site', 'https://dashboard.sfuracerbot.ca', '--car', 'rb2.x'],
+])
+def test_arguments_it_cannot_use_are_refused_with_usage(argv, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        parse_args(argv)
+    assert exit_info.value.code == 2
+    assert 'usage: remote_check' in capsys.readouterr().err
