@@ -12,6 +12,10 @@
   // workers.dev or preview URL would skip Access entirely, and with it the
   // only thing that makes Cf-Access-Authenticated-User-Email trustworthy.
   "workers_dev": false,
+  // Without this, every deploy (every push to main) deletes variables that
+  // were added in the dashboard as plain Text. Secrets survive either way;
+  // this stops a mis-typed secret silently vanishing on the next merge.
+  "keep_vars": true,
   "preview_urls": false,
   "routes": [
     { "pattern": "dashboard.sfuracerbot.ca", "custom_domain": true }

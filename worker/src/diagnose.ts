@@ -146,11 +146,23 @@ async function probe(
 export async function diagnose(env: Env, carId: string, car: CarConfig): Promise<Response> {
   const token = serviceToken(env);
   const results: HopResult[] = [];
+  // Names only -- never values -- of everything the running Worker was given,
+  // so a secret stored somewhere the Worker does not read (Build variables,
+  // Preview settings, another Worker) or under a slightly different name
+  // shows up as what it is.
+  const names = Object.keys(env as unknown as Record<string, unknown>).sort();
+  const nearMisses = names.filter((n) => /access|client|secret/i.test(n)
+    && n !== "ACCESS_CLIENT_ID" && n !== "ACCESS_CLIENT_SECRET");
   if (!token.ok) {
+    const missing = ["ACCESS_CLIENT_ID", "ACCESS_CLIENT_SECRET"].filter((name) => !(env as unknown as Record<string, unknown>)[name]);
     results.push({
       name: "worker secrets", url: "", ok: false, status: null,
-      meaning: `The Worker secret ${token.missing} is not set, so the site cannot identify itself to the car.`,
-      fix: "Workers & Pages > racerbot-dashboard > Settings > Variables and Secrets: add it as type Secret (setup step 6). Not under Build variables.",
+      meaning: `The running Worker has no ${missing.join(" and no ")}, so the site cannot identify itself to the car.`,
+      fix: "Workers & Pages > racerbot-dashboard > Settings > Variables and Secrets > Add, with Type: Secret "
+        + "(not Text: a Text variable is deleted by the next deploy, and every push to main deploys). "
+        + "Names exactly ACCESS_CLIENT_ID and ACCESS_CLIENT_SECRET, no spaces. Not under Settings > Build, "
+        + "and not under Preview settings. Save/Deploy, then reload this page."
+        + (nearMisses.length ? ` The Worker DOES have ${nearMisses.join(", ")}: rename to the exact names above.` : ""),
     });
   } else {
     results.push({ name: "worker secrets", url: "", ok: true, status: null, meaning: "ACCESS_CLIENT_ID and ACCESS_CLIENT_SECRET are both set." });
@@ -176,6 +188,7 @@ export async function diagnose(env: Env, carId: string, car: CarConfig): Promise
       ? "Every hop from the site to the car works. If the dashboard still shows the car offline, reload it."
       : `Not working: ${results.filter((r) => !r.ok).map((r) => r.name).join(", ")}. See each "fix".`,
     checks: results,
+    worker_setting_names: names,
     relay,
     checked_at: new Date().toISOString(),
   }, null, 2), { headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
