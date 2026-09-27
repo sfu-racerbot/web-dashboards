@@ -1,11 +1,11 @@
 """
-The dashboard's web server: the WebSocket handler, the page routes, and
-the one loop that fans a message out to every connection.
+The dashboard's web server: the WebSocket handler, a 404 for every
+page, and the one loop that fans a message out to every connection.
 
 Split out of dashboard_node.py so it has no rclpy import. Tornado is a
 plain Python library, so test/test_server.py can run the real handler on
-a real socket -- hello first, the Origin check, role refusal and routing,
-serve_static -- against a small fake node, with no ROS and no car.
+a real socket -- hello first, the Origin check, role refusal and routing, and
+the 404 for pages -- against a small fake node, with no ROS and no car.
 
 The node object passed in only needs what the handler actually calls:
 `ws_clients`, `allowed_origins`, `get_logger()`, `send_initial_state()`,
@@ -25,8 +25,8 @@ from web_dashboard import origins, protocol, roles
 
 
 class _NotFoundHandler(tornado.web.RequestHandler):
-    """Every page request when serve_static is false: a plain 404. The
-    remote site serves the frontend; this node only answers /ws."""
+    """Every page request: a plain 404. The site (web-dashboards
+    apps/simple) serves the frontend; this node only answers /ws."""
 
     def get(self, *_args):
         raise tornado.web.HTTPError(404)
@@ -314,19 +314,15 @@ def send_to_all(clients, header, binary_payload=None, origin_ids=frozenset()):
             pass
 
 
-def make_app(node, static_dir):
-    """The Tornado application. `static_dir` None means serve_static is
-    false: /ws only, and a 404 for every page."""
-    if static_dir is not None:
-        pages = (r'/(.*)', tornado.web.StaticFileHandler,
-                 {'path': static_dir, 'default_filename': 'index.html'})
-    else:
-        # WebSocket only: the frontend is served by the remote site.
-        pages = (r'/(.*)', _NotFoundHandler)
+def make_app(node):
+    """The Tornado application: /ws, and a 404 for every page.
+
+    There used to be a StaticFileHandler here serving the old frontend
+    (web/, `serve_static: true`). The frontend moved to the site's
+    apps/simple and web/ was deleted, which left it nothing to serve, so
+    it was removed rather than kept pointing at an empty directory."""
     return tornado.web.Application([
         (r'/ws', DashboardWebSocket, {'node': node}),
-        # Catch-all *after* /ws -- Tornado matches routes in order, so
-        # /ws must be registered first or StaticFileHandler's '.*'
-        # would swallow the WebSocket upgrade request too.
-        pages,
+        # Catch-all *after* /ws -- Tornado matches routes in order.
+        (r'/(.*)', _NotFoundHandler),
     ])

@@ -1,14 +1,14 @@
 usb_cam_stream_node:
   ros__parameters:
     # --- Camera --- verify the device path with `v4l2-ctl --list-devices`,
-    # see docs/usb-camera-livestream.md
+    # see car/docs/usb-camera-livestream.md
     device: /dev/video0
     width: 1280
     height: 720
     capture_fps: 30
 
     # --- Web server ---
-    host: 0.0.0.0   # listen on every interface -- see docs/usb-camera-livestream.md's security note
+    host: 0.0.0.0   # listen on every interface -- see car/docs/usb-camera-livestream.md's security note
     port: 9090      # 8080 is already used by web_dashboard on this car
     # Upper bound on how often any one viewer is sent a frame. Frames are
     # pushed as soon as they exist rather than polled for, so this is a cap
@@ -17,7 +17,7 @@ usb_cam_stream_node:
     stream_fps: 30.0
 
     # --- Two stream tiers, because there are two viewers with opposite
-    # needs (see docs/usb-camera-livestream.md). Each is encoded once and
+    # needs (see car/docs/usb-camera-livestream.md). Each is encoded once and
     # shared; a tier nobody is watching is not encoded at all.
     #
     #   /stream              preview -- the dashboard's camera inset, which

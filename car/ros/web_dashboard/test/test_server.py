@@ -10,12 +10,12 @@ What only an end-to-end test can show, and so what this file is for:
   * a control connection's write reaches the node tagged with its id,
     and every write is logged with the user;
   * send_to_all routes by role -- binary frames included;
-  * serve_static: false serves /ws and a 404 for every page.
+  * every page is a 404; only /ws answers.
 
 Oracle: the contract in docs/web-dashboard.md, "Remote access through
 dashboard.sfuracerbot.ca".
 
-    python3 -m pytest src/web_dashboard/test/test_server.py -v
+    python3 -m pytest car/ros/web_dashboard/test/test_server.py -v
 """
 import json
 import os
@@ -100,11 +100,10 @@ class FakeNode:
 
 
 class _ServerCase(tornado.testing.AsyncHTTPTestCase):
-    static_dir = None
 
     def get_app(self):
         self.node = FakeNode()
-        return make_app(self.node, self.static_dir)
+        return make_app(self.node)
 
     async def connect(self, role=None, user=None, origin=None, host=None):
         headers = {}
@@ -318,27 +317,7 @@ class RoutingTest(_ServerCase):
         assert await self.read_json(relay) == batch
 
 
-class StaticOnTest(_ServerCase):
-
-    def get_app(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        with open(os.path.join(self._tmp.name, 'index.html'), 'w') as handle:
-            handle.write('<title>fallback</title>')
-        self.static_dir = self._tmp.name
-        return super().get_app()
-
-    def tearDown(self):
-        super().tearDown()
-        self._tmp.cleanup()
-
-    def test_the_fallback_page_is_served(self):
-        response = self.fetch('/')
-        assert response.code == 200
-        assert b'fallback' in response.body
-
-
-class StaticOffTest(_ServerCase):
-    static_dir = None
+class PagesTest(_ServerCase):
 
     def setUp(self):
         # Run from a directory that DOES hold a page, so a server that

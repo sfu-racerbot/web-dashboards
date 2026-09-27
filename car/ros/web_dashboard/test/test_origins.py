@@ -7,7 +7,7 @@ plus exact scheme+host+port matches from allowed_origins, no wildcards.
 The refusals are the half that matters (A8): each one is a page that
 must NOT be able to reach the dashboard's write paths.
 
-    python3 -m pytest src/web_dashboard/test/test_origins.py -v
+    python3 -m pytest car/ros/web_dashboard/test/test_origins.py -v
 """
 import pytest
 

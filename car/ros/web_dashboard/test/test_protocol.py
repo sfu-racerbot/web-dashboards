@@ -5,7 +5,7 @@ plain SimpleNamespace objects (matching just the fields protocol.py
 actually reads) rather than real message classes, so these tests don't
 even need rclpy importable. Run with:
 
-    python3 -m pytest src/web_dashboard/test/test_protocol.py -v
+    python3 -m pytest car/ros/web_dashboard/test/test_protocol.py -v
 """
 import math
 import os
@@ -255,7 +255,7 @@ def test_the_first_published_version_is_one():
     """Pinned against the version the remote site was built for. When
     this fails you changed PROTOCOL_VERSION: that is correct only for an
     incompatible wire change, and the site must be updated to match --
-    see the rule in src/web_dashboard/README.md's wire-protocol table."""
+    see the rule in car/ros/web_dashboard/README.md's wire-protocol table."""
     assert protocol.PROTOCOL_VERSION == 1
 
 

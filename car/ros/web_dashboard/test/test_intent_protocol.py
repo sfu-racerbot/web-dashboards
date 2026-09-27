@@ -14,7 +14,12 @@ needs rclpy; what is tested here is the decode/validate pair that
 callback is built from, exercised against exactly the payloads a
 hand-rolled C++ publisher is most likely to get wrong.
 
-    python3 -m pytest src/web_dashboard/test/test_intent_protocol.py -v
+Needs the drive_intent package importable -- its schema is the oracle.
+It lives in the car workspace, not here: on a car, source the workspace;
+in this repo's CI the workflow puts it on PYTHONPATH. See
+test_intent_optional.py for the dashboard WITHOUT drive_intent.
+
+    python3 -m pytest car/ros/web_dashboard/test/test_intent_protocol.py -v
 """
 import json
 import os
@@ -23,7 +28,6 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'drive_intent'))
 from drive_intent import schema  # noqa: E402
 from web_dashboard import protocol  # noqa: E402
 

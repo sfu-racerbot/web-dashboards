@@ -8,7 +8,7 @@ the write panels' state and its own replies but no map/scan/batch, and a
 connection with no role header is unchanged. Expected values are the
 message types that contract names, not whatever the code emits today.
 
-    python3 -m pytest src/web_dashboard/test/test_roles.py -v
+    python3 -m pytest car/ros/web_dashboard/test/test_roles.py -v
 """
 import pytest
 

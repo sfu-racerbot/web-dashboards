@@ -93,11 +93,15 @@ PROTECTED = frozenset({
     'web_dashboard_launch.py',
 })
 
-# What a browser may stop, out of the box: this workspace's own driving
-# algorithms, teammates' driving nodes from racerbot_a / racerbot_b, and
-# the simulator's two nodes (which forge LB and fake a /scan, so a stale
-# one is its own hazard). Overridable via the `killable_nodes` parameter;
-# PROTECTED still wins over anything added there.
+# SFU Racerbot car 2's driving processes: its own driving algorithms,
+# teammates' driving nodes from racerbot_a / racerbot_b, and the
+# simulator's two nodes (which forge LB and fake a /scan, so a stale one
+# is its own hazard). Only scan()'s default when called with no
+# allowlist, and the tests' fixture. The NODE does not use it: its
+# `killable_nodes` parameter defaults to empty, because which processes
+# are a car's driving algorithms is that car's config to say (car 2's
+# list is in its workspace's web_dashboard_rb2.yaml). PROTECTED still
+# wins over anything a config adds.
 #
 # Deliberately absent, and worth knowing why: urg_node, particle_filter
 # and slam_toolbox. None of them can move the car, but killing one mid-run

@@ -2,7 +2,7 @@
 camera_stream_node.py
 
 Captures frames from a USB webcam (any UVC-compliant device -- see
-docs/usb-camera-livestream.md for camera recommendations) and serves them
+car/docs/usb-camera-livestream.md for camera recommendations) and serves them
 as a live MJPEG video stream over plain HTTP: open http://<car-ip>:9090/
 in any browser and watch, no plugins, no WebRTC signaling, no ROS install
 needed on the viewing device.
@@ -15,7 +15,7 @@ already held open by its own ROS driver node (realsense2_camera_node holds
 the D435i's /dev/videoN exclusively) can't be captured a second time via
 V4L2 -- but its frames are right there on a topic. Everything downstream
 (the MJPEG endpoints, the web_dashboard camera panel that points at them)
-is identical in both modes. See docs/realsense-camera.md.
+is identical in both modes. (SFU Racerbot car 2 runs it this way from a RealSense; see its workspace's docs/realsense-camera.md.)
 
 ## Two tiers, because there are two viewers with opposite needs
 
@@ -366,7 +366,7 @@ class CameraStreamNode(Node):
         # (the default, "/dev/video0") -- a path is more robust across
         # reboots/hotplugs than an index if more than one video device is
         # ever present (e.g. a UVC camera enumerating alongside some other
-        # capture device), see docs/usb-camera-livestream.md.
+        # capture device), see car/docs/usb-camera-livestream.md.
         device = int(self.device) if str(self.device).isdigit() else self.device
         cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
         if not cap.isOpened():

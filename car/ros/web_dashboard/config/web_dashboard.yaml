@@ -1,3 +1,17 @@
+# web_dashboard's GENERIC defaults: what any car gets before it writes its
+# own YAML. No car's node names, paths or geometry live here.
+#
+# Put your car's settings in your own workspace, in a file with only the
+# keys you change (see car/README.md, "Write your car's YAML"), and start
+# the dashboard with it layered on top of this one:
+#
+#   ros2 launch web_dashboard web_dashboard_launch.py car_config:=/path/to/your.yaml
+#
+# The lists below that a car must fill in -- allowed_origins, tuning_nodes,
+# tuning_config_files, killable_nodes, map_roots -- are left UNSET here
+# (commented out) rather than written as `[]`: ROS reads an empty YAML list
+# as a byte array and then refuses a car YAML's list of strings. Unset reads
+# as empty.
 web_dashboard_node:
   ros__parameters:
     # --- Topics ---
@@ -21,7 +35,7 @@ web_dashboard_node:
     joy_topic: /joy              # read-only LB state for the stopwatch
     # What the running driving node says it is *trying* to do -- the intent
     # arrow and the decision panel. Still just another subscription; this
-    # dashboard publishes to no topic. See docs/drive-intent.md.
+    # dashboard publishes to no topic. See docs/drive-intent.md in the car workspace (sfu-racerbot/Racerbot-Car-2-Workspace).
     intent_topic: /drive_intent
     # Malformed intent messages are reported at most this often. A publisher
     # getting the schema wrong is usually getting it wrong at 20Hz, and the
@@ -39,26 +53,25 @@ web_dashboard_node:
     # "bind everything" rather than passing it straight to the web server,
     # which would bind IPv4 only and leave the dashboard unreachable at the
     # car's Tailscale IPv6 address. See web_dashboard/netbind.py and
-    # docs/web-dashboard.md's security note.
+    # car/docs/web-dashboard.md's security note.
     host: 0.0.0.0
     # Set a real address instead (e.g. 127.0.0.1) to restrict it to one.
     port: 8080
 
-    # --- Remote access (docs/web-dashboard.md, "Remote access through
-    # dashboard.sfuracerbot.ca") ---
-    # Other web sites allowed to open the WebSocket. Pages this node serves
-    # itself -- every LAN/Tailscale use --
-    # are always allowed, so this only needs the remote site. Exact
-    # scheme://host[:port]: no wildcards, no paths, no trailing slash (an
-    # entry with one is ignored with a warning at startup).
-    allowed_origins: ["https://dashboard.sfuracerbot.ca"]
-    # true: also serve the frozen fallback page in web/ (the old dashboard).
-    # false: answer only the WebSocket and 404 every page. Stays true until
-    # the team confirms dashboard.sfuracerbot.ca works for everything.
-    serve_static: true
+    # --- Remote access (car/docs/web-dashboard.md, "Remote access") ---
+    # The site allowed to open the WebSocket: your copy of web-dashboards,
+    # exactly scheme://host[:port] -- no wildcards, no paths, no trailing
+    # slash (an entry with one is ignored with a warning at startup).
+    # UNSET by default, which means no site can connect: set it in your
+    # car's YAML.
+    #   allowed_origins: ["https://dashboard.example.org"]
+    #
+    # This node serves no pages -- only the WebSocket, at /ws; every page is
+    # a 404. The dashboard itself is the site. (`serve_static: true`, from
+    # before the pages moved, is ignored with a warning.)
 
     # --- Bandwidth ---
-    # See docs/web-dashboard.md "What this costs the car" for the measured
+    # See car/docs/web-dashboard.md "What this costs the car" for the measured
     # before/after. The short version: this dashboard used to push ~900 kB/s
     # over WiFi while the car was being driven around, almost all of it the
     # occupancy grid being re-sent in full every few seconds, and that is
@@ -92,12 +105,10 @@ web_dashboard_node:
     scan_decimation: 1
 
     # --- LIDAR mounting offset from base_link, used to place scan points
-    # correctly relative to the car's pose (see docs/hardware-reference.md).
-    # Measured 2026-08-24: 0.26 m = the 0.36 m wheelbase less the 0.10 m the
-    # LiDAR sits behind the front axle. Must match the base_link->laser
-    # static transform in bringup_launch.py, or the dashboard draws the scan
-    # somewhere the car is not looking. ---
-    laser_offset_x: 0.26
+    # correctly relative to the car's pose. A property of YOUR car: set it
+    # in your car's YAML to match its base_link->laser static transform, or
+    # the dashboard draws the scan somewhere the car is not looking. ---
+    laser_offset_x: 0.0
     laser_offset_y: 0.0
 
     # --- Live parameter tuning ---
@@ -125,17 +136,16 @@ web_dashboard_node:
     # The ONLY nodes this dashboard will probe or write to. An explicit list,
     # not bus discovery: this is what keeps it inside this workspace's own
     # driving code and away from teammates' packages and vendored drivers. A
-    # node must also advertise a live_tunable_spec parameter to appear at all.
-    tuning_nodes:
-      - pure_pursuit_node
-      - gap_follow_node
-    # Parallel to tuning_nodes: where "save" writes each node's tune back to.
-    # Resolved through the install symlinks to the git-tracked file in src/,
-    # so a saved tune shows up in `git diff` for review. Blank = tunable live
-    # but never savable.
-    tuning_config_files:
-      - pure_pursuit/config/pure_pursuit.yaml
-      - gap_follow/config/gap_follow.yaml
+    # node must also advertise a live_tunable_spec parameter to appear at all
+    # (the contract: car/docs/web-dashboard.md, "The live_tunable_spec
+    # contract"). UNSET by default -- no node is tunable until your car's
+    # YAML names it:
+    #   tuning_nodes: [my_controller_node]
+    # Parallel to tuning_nodes: where "save" writes each node's tune back to,
+    # as '<package>/<path under its share dir>'. Resolved through the install
+    # symlinks to the git-tracked file in src/, so a saved tune shows up in
+    # `git diff` for review. Blank = tunable live but never savable.
+    #   tuning_config_files: [my_controller/config/my_controller.yaml]
     # Set false to allow live tuning but forbid writing it to disk -- a
     # reasonable race-day setting, where you want to adjust between runs but
     # not to discover afterwards that the committed config drifted.
@@ -154,7 +164,7 @@ web_dashboard_node:
     # the car; it removes whatever was commanding it, and the VESC then holds
     # its last command until the VESC firmware's own motor timeout releases
     # it. The emergency stop is releasing LB, which actively publishes zeroes
-    # at a higher priority. See docs/web-dashboard.md.
+    # at a higher priority. See car/docs/web-dashboard.md.
     #
     # Set false to remove the panel and the capability entirely.
     enable_process_control: true
@@ -172,26 +182,10 @@ web_dashboard_node:
     # none can move the car, but killing one mid-run degrades a *running*
     # controller rather than stopping it, and pure_pursuit with a frozen pose
     # is worse than pure_pursuit with no pose. Add them if you want them.
-    killable_nodes:
-      # this workspace
-      - pure_pursuit_node
-      - gap_follow_node
-      - auto_map_race_node
-      # racerbot_a / racerbot_b
-      - gap_finder_node
-      - ftg_node
-      - follow_the_gap_node
-      - reactive_node
-      - wall_follow_node
-      - safety_node
-      # racerbot_sim -- a stale one forges LB and fakes a /scan
-      - gym_bridge_node
-      - sim_joy_node
-      # the launches that own the above
-      - pure_pursuit_launch.py
-      - gap_follow_launch.py
-      - auto_map_race_launch.py
-      - sim_launch.py
+    #
+    # UNSET by default -- the panel lists nothing until your car's YAML names
+    # its driving nodes (and the launch files that own them):
+    #   killable_nodes: [my_controller_node, my_controller_launch.py]
     process_stop_grace_sec: 2.0      # per signal, before escalating to the next
     process_scan_interval_sec: 2.0   # how often the running-process list refreshes
 
@@ -211,9 +205,8 @@ web_dashboard_node:
     #
     # Set false to remove the panel and the capability entirely.
     enable_map_delete: true
-    # The ONLY directories a browser can ever see, or delete inside.
-    #   ~/.ros/racerbot_auto      auto_map_race_node's output_directory
-    #   ~/.ros/racerbot_sim/auto  the simulator's equivalent
+    # The ONLY directories a browser can ever see, or delete inside: where
+    # your car's own tooling writes its run directories.
     #
     # Refused no matter what you put here: anything inside a git working
     # tree (src/particle_filter/maps holds tracked upstream demo maps, and a
@@ -226,9 +219,9 @@ web_dashboard_node:
     # Maps saved the manual way (`ros2 run nav2_map_server map_saver_cli -f
     # <name>`) land in whatever directory you ran that command from, so they
     # are not listed here -- there is no canonical place to list them from.
-    map_roots:
-      - ~/.ros/racerbot_auto
-      - ~/.ros/racerbot_sim/auto
+    #
+    # UNSET by default -- no directory is listed until your car's YAML says:
+    #   map_roots: [~/.ros/my_runs]
     # Directory sizes are cheap but not free, and a run directory only
     # changes when a run ends.
     map_scan_interval_sec: 10.0

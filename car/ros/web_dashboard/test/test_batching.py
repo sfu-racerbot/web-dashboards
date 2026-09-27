@@ -3,7 +3,7 @@ Unit tests for web_dashboard.batching -- coalescing telemetry frames.
 
 No ROS, no Tornado, no network. Run with:
 
-    python3 -m pytest src/web_dashboard/test/test_batching.py -v
+    python3 -m pytest car/ros/web_dashboard/test/test_batching.py -v
 
 The rule under test is "latest wins, except that no /drive_intent state
 transition may ever be dropped". The browser builds its decision log out

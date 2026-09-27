@@ -3,7 +3,7 @@ Unit tests for web_dashboard.tuning -- spec parsing, request clamping, and
 the comment-preserving YAML writer. No ROS, no Tornado, no network, no
 browser. Run with:
 
-    python3 -m pytest src/web_dashboard/test/test_tuning.py -v
+    python3 -m pytest car/ros/web_dashboard/test/test_tuning.py -v
 
 The YAML tests lean on the real config files in this workspace rather than
 only synthetic fixtures: the whole point of the line-surgery writer is
@@ -20,8 +20,13 @@ import yaml
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from web_dashboard import tuning  # noqa: E402
 
-WORKSPACE_SRC = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), '..', '..'))
+# Snapshots of two real, heavily commented driving-node configs: SFU
+# Racerbot car 2's pure_pursuit.yaml and gap_follow.yaml, copied verbatim
+# from sfu-racerbot/Racerbot-Car-2-Workspace at e314f96 when this package
+# moved here. The LIVE files are round-tripped by that workspace's own
+# gap_follow/pure_pursuit live-tuning tests (the other half of the
+# live_tunable_spec contract, car/docs/web-dashboard.md).
+FIXTURES = os.path.join(os.path.dirname(__file__), 'fixtures')
 
 SAMPLE_YAML = """\
 some_node:
@@ -188,13 +193,14 @@ def test_update_yaml_rejects_a_file_without_ros_parameters():
     ('pure_pursuit', 'pure_pursuit_node'),
     ('gap_follow', 'gap_follow_node'),
 ])
-def test_update_yaml_round_trips_the_real_configs(package, node):
-    """The real files, which are mostly comments explaining the numbers.
+def test_update_yaml_round_trips_real_configs(package, node):
+    """Real files (snapshots, see FIXTURES), mostly comments explaining
+    the numbers.
 
     Asserts the two properties that make "save" safe to click: every
     comment survives, and no value other than the requested one moves.
     """
-    path = os.path.join(WORKSPACE_SRC, package, 'config', f'{package}.yaml')
+    path = os.path.join(FIXTURES, f'car2_{package}.yaml')
     original = open(path).read()
     updated, changed, added = tuning.update_yaml_values(
         original, node, {'max_speed': 1.25})

@@ -6,7 +6,7 @@ the 2026-08-19 run pure pursuit never got control -- it logged
 `waiting_for_profile` 176 times while gap_follow drove the entire session
 -- and nothing on screen distinguished that from a slow race.
 
-    python3 -m pytest src/web_dashboard/test/test_racing_line_protocol.py -v
+    python3 -m pytest car/ros/web_dashboard/test/test_racing_line_protocol.py -v
 """
 
 import json

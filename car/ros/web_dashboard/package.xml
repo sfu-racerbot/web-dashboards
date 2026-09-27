@@ -3,7 +3,7 @@
 <package format="3">
   <name>web_dashboard</name>
   <version>0.1.0</version>
-  <description>Read-only live browser dashboard for map, proximity-colored LIDAR, pose, vehicle telemetry, LB-gated stopwatch, system health, and camera recording view.</description>
+  <description>The car-side server for the web-dashboards site (sfu-racerbot/web-dashboards): streams map, LiDAR, pose, telemetry and drive intent over a WebSocket, with bounded tuning, process stop, map delete and SLAM reset. Also ships the foxglove_bridge config for the site's Advanced dashboard.</description>
   <maintainer email="bryanmaubc@gmail.com">racerbotcar-2</maintainer>
   <license>MIT</license>
 
@@ -13,7 +13,10 @@
   <depend>nav_msgs</depend>
   <depend>ackermann_msgs</depend>
   <depend>std_msgs</depend>
-  <depend>drive_intent</depend>
+  <!-- drive_intent is OPTIONAL and deliberately not declared: it belongs
+       to the car workspace that publishes /drive_intent, and a team
+       without it still gets a working dashboard with the intent panel
+       off (web_dashboard/intent.py). Its tests need it importable. -->
   <depend>ament_index_python</depend>
   <depend>python3-tornado</depend>
   <depend>python3-psutil</depend>
@@ -24,8 +27,13 @@
        sourced, and the import is guarded so a machine without
        slam_toolbox still gets a working dashboard. -->
   <exec_depend>slam_toolbox</exec_depend>
+  <!-- foxglove_bridge_launch.py: the site's Advanced dashboard (Lichtblick).
+       apt: ros-jazzy-foxglove-bridge -->
+  <exec_depend>foxglove_bridge</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
+  <!-- test_foxglove_bridge_config.py reads the bridge YAML -->
+  <test_depend>python3-yaml</test_depend>
 
   <export>
     <build_type>ament_python</build_type>

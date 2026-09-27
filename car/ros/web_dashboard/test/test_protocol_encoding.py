@@ -8,7 +8,7 @@ tests are the proof that the `.tobytes()` fast paths are byte-identical to
 the `struct.pack` implementation they replaced, and that proof is only
 worth anything if the file itself is untouched.
 
-    python3 -m pytest src/web_dashboard/test/test_protocol_encoding.py -v
+    python3 -m pytest car/ros/web_dashboard/test/test_protocol_encoding.py -v
 """
 import math
 import os

@@ -3,7 +3,7 @@ Unit tests for web_dashboard/mapstore.py -- finding, vetting and deleting
 saved SLAM map run directories.
 
 No ROS, no Tornado, no network, no browser: mapstore.py imports none of
-them, so these run under plain `python3 -m pytest src/web_dashboard/test/`
+them, so these run under plain `python3 -m pytest car/ros/web_dashboard/test/`
 with nothing sourced. Nothing here deletes anything outside pytest's own
 tmp_path.
 

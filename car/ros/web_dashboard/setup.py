@@ -12,27 +12,18 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/launch', [
-            'launch/web_dashboard_launch.py',
-        ]),
-        ('share/' + package_name + '/config', [
-            'config/web_dashboard.yaml',
-        ]),
-        # Globbed, NOT listed by hand. These were an explicit list until
-        # adding web/panels.js to the page and forgetting to add it here
-        # too -- which installs a dashboard whose index.html asks for a
-        # script that was never copied, so the browser 404s it and every
-        # feature in that file silently does not exist. Nothing about the
-        # page looks broken; the missing behaviour just never appears.
-        # A glob cannot forget. test_packaging.py holds the line.
-        ('share/' + package_name + '/web',
-            glob('web/*.html') + glob('web/*.js') + glob('web/*.css')),
+        # Globbed, NOT listed by hand: a hand-kept list once forgot a file
+        # the dashboard needed, and nothing looked broken until the feature
+        # silently never appeared. A glob cannot forget.
+        # test/test_install_files.py holds the line.
+        ('share/' + package_name + '/launch', glob('launch/*.py')),
+        ('share/' + package_name + '/config', glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='racerbotcar-2',
     maintainer_email='bryanmaubc@gmail.com',
-    description="Read-only live dashboard with vehicle telemetry and camera overlay.",
+    description="Car-side server for the web-dashboards site, and the foxglove_bridge config.",
     license='MIT',
     tests_require=['pytest'],
     entry_points={

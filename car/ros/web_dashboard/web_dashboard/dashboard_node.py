@@ -115,8 +115,7 @@ import tornado.netutil
 import tornado.web
 from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
 
-from drive_intent import schema as intent_schema
-from web_dashboard import mapstore, netbind, origins, proccontrol, protocol, tuning
+from web_dashboard import intent, mapstore, netbind, origins, proccontrol, protocol, tuning
 from web_dashboard.batching import TelemetryBatcher
 from web_dashboard.server import DashboardWebSocket, make_app, send_to_all
 from web_dashboard.mapstream import MapGeometry, MapStreamer
@@ -305,9 +304,11 @@ class DashboardNode(Node):
         # empty list as a BYTE_ARRAY and then refuses the YAML's list of
         # strings at startup. Unset reads as uninitialized -> empty below.
         self.declare_parameter('allowed_origins', Parameter.Type.STRING_ARRAY)
-        # False: answer only /ws, and 404 every page. The frontend now lives
-        # in sfu-racerbot/web-dashboards; web/ here is a frozen fallback.
-        self.declare_parameter('serve_static', True)
+        # Kept only so an old YAML that still says `serve_static: true` is
+        # reported rather than silently ignored. The old frontend (web/) is
+        # gone -- the pages are the site's apps/simple -- so this node answers
+        # /ws only and 404s every page, whatever this says.
+        self.declare_parameter('serve_static', False)
         self.declare_parameter('scan_broadcast_rate_hz', 10.0)
         self.declare_parameter('stats_interval_sec', 1.0)
         # --- Wire budget (docs/web-dashboard.md, "cost on the car") ---
@@ -329,10 +330,11 @@ class DashboardNode(Node):
         # Send every Nth beam. 1 = every beam (the default; the Hokuyo's
         # 1081 beams at 2 bytes each are already cheap).
         self.declare_parameter('scan_decimation', 1)
-        # Measured 2026-08-24: the 0.36 m wheelbase less the 0.10 m the LiDAR
-        # sits behind the front axle. Must match the base_link->laser static
-        # transform in f1tenth_stack's bringup_launch.py.
-        self.declare_parameter('laser_offset_x', 0.26)
+        # How far the LiDAR sits ahead of base_link, in metres. A property
+        # of the car, so the package default is 0.0 and each car sets its
+        # own in its YAML; it must match that car's base_link->laser
+        # static transform.
+        self.declare_parameter('laser_offset_x', 0.0)
         self.declare_parameter('laser_offset_y', 0.0)
         # --- Drive intent (docs/drive-intent.md) ---
         # What the running driving node says it is *trying* to do. Purely
@@ -366,15 +368,16 @@ class DashboardNode(Node):
         # which asked to be tuned from a browser. A node still has to
         # advertise a live_tunable_spec to appear in the panel, so this
         # list is a bound on the blast radius, not a wish.
-        self.declare_parameter('tuning_nodes', ['pure_pursuit_node', 'gap_follow_node'])
+        #
+        # Empty by default: which nodes are tunable is the car workspace's
+        # to say, so each car lists its own in its YAML. Declared by type,
+        # not `[]` -- see allowed_origins above.
+        self.declare_parameter('tuning_nodes', Parameter.Type.STRING_ARRAY)
         # Parallel to tuning_nodes: '<package>/<path under its share dir>'
         # for the config each node's "save" button writes back to. An
         # empty entry means that node's tune can be changed live but never
         # saved.
-        self.declare_parameter('tuning_config_files', [
-            'pure_pursuit/config/pure_pursuit.yaml',
-            'gap_follow/config/gap_follow.yaml',
-        ])
+        self.declare_parameter('tuning_config_files', Parameter.Type.STRING_ARRAY)
         self.declare_parameter('tuning_allow_save', True)
         self.declare_parameter('tuning_refresh_sec', 2.0)
         self.declare_parameter('tuning_request_rate_hz', 20.0)
@@ -385,7 +388,9 @@ class DashboardNode(Node):
         # The only process names a browser can ever stop. PROTECTED wins
         # over anything added here -- putting `ackermann_mux` in this list
         # does not make it stoppable, it logs a warning and is ignored.
-        self.declare_parameter('killable_nodes', list(proccontrol.DEFAULT_KILLABLE))
+        # Empty by default (proccontrol.DEFAULT_KILLABLE): which processes
+        # are the car's driving algorithms is the car workspace's to say.
+        self.declare_parameter('killable_nodes', Parameter.Type.STRING_ARRAY)
         # How long a process gets to honour each signal before the next
         # one. 2s is comfortably longer than a healthy rclpy shutdown and
         # short enough that clearing a wedged node stays a trackside
@@ -401,10 +406,9 @@ class DashboardNode(Node):
         #
         # Set false to remove the panel and the capability entirely.
         self.declare_parameter('enable_map_delete', True)
-        # The ONLY directories a browser can ever see or delete inside.
-        # Everything the car's own tooling writes lands in one of these two:
-        #   ~/.ros/racerbot_auto      auto_map_race_node's output_directory
-        #   ~/.ros/racerbot_sim/auto  the simulator's
+        # The ONLY directories a browser can ever see or delete inside:
+        # wherever the car's own tooling writes its run directories. Empty
+        # by default -- each car lists its own in its YAML.
         #
         # Anything inside a git working tree is refused whatever you put here
         # -- src/particle_filter/maps holds tracked upstream demo maps, and a
@@ -418,8 +422,7 @@ class DashboardNode(Node):
         # map_saver_cli -f <name>`) land in whatever directory you ran it
         # from, so they are deliberately NOT listed here -- there is no
         # canonical location for them to be listed from.
-        self.declare_parameter(
-            'map_roots', ['~/.ros/racerbot_auto', '~/.ros/racerbot_sim/auto'])
+        self.declare_parameter('map_roots', Parameter.Type.STRING_ARRAY)
         # Directory sizes are cheap but not free, and a run directory only
         # changes when a run ends.
         self.declare_parameter('map_scan_interval_sec', 10.0)
@@ -461,20 +464,20 @@ class DashboardNode(Node):
         self.scan_decimation = max(1, int(self.get_parameter('scan_decimation').value))
         self.host = self.get_parameter('host').value
         self.port = int(self.get_parameter('port').value)
-        try:
-            configured_origins = self.get_parameter('allowed_origins').value
-        except ParameterUninitializedException:
-            configured_origins = []  # not in the YAML: same-origin only
         self.allowed_origins, rejected = origins.parse_allowed_origins(
-            configured_origins)
+            self._string_list('allowed_origins'))  # unset: same-origin only
         for entry in rejected:
             # Loud, because the only other symptom is a 403 on the far side
             # of a tunnel: a trailing slash or a path never matches a real
             # Origin header.
             self.get_logger().warn(
                 f"allowed_origins: ignoring {entry!r} -- expected exactly "
-                f"scheme://host[:port], e.g. 'https://dashboard.sfuracerbot.ca'")
-        self.serve_static = bool(self.get_parameter('serve_static').value)
+                f"scheme://host[:port], e.g. 'https://dashboard.example.org'")
+        if bool(self.get_parameter('serve_static').value):
+            self.get_logger().warn(
+                'serve_static: true is ignored -- this node no longer serves '
+                'pages. The dashboard is the site (web-dashboards apps/simple); '
+                'this node answers /ws only. Remove serve_static from the YAML.')
         self.scan_broadcast_rate_hz = float(self.get_parameter('scan_broadcast_rate_hz').value)
         self.stats_interval_sec = float(self.get_parameter('stats_interval_sec').value)
         self.intent_topic = self.get_parameter('intent_topic').value
@@ -512,7 +515,7 @@ class DashboardNode(Node):
         # is a mistake worth a warning in the launch log, not a silent
         # no-op and not something to honour.
         self.killable_nodes = proccontrol.sanitize_allowlist(
-            self.get_parameter('killable_nodes').value, self.get_logger())
+            self._string_list('killable_nodes'), self.get_logger())
         self.process_stop_grace_sec = max(
             0.5, float(self.get_parameter('process_stop_grace_sec').value))
         self.process_scan_interval_sec = max(
@@ -523,7 +526,7 @@ class DashboardNode(Node):
         # browser and says so loudly -- the same contract as
         # sanitize_allowlist above, for the same reason.
         self.map_roots = mapstore.sanitize_roots(
-            self.get_parameter('map_roots').value, self.get_logger())
+            self._string_list('map_roots'), self.get_logger())
         self.map_scan_interval_sec = max(
             1.0, float(self.get_parameter('map_scan_interval_sec').value))
         self.enable_slam_reset = bool(
@@ -599,8 +602,17 @@ class DashboardNode(Node):
         ]
         self.drive_sub = self.create_subscription(
             AckermannDriveStamped, self.drive_topic, self.drive_callback, 10)
-        self.intent_sub = self.create_subscription(
-            String, self.intent_topic, self.intent_callback, 10)
+        # Optional: without the drive_intent package there is nothing to
+        # validate a message against, so nothing is subscribed at all and
+        # the panel stays empty. Logged once, here. See intent.py.
+        self._intent_schema, why = intent.load_schema()
+        self.intent_enabled = self._intent_schema is not None
+        self.intent_sub = None
+        if self.intent_enabled:
+            self.intent_sub = self.create_subscription(
+                String, self.intent_topic, self.intent_callback, 10)
+        self.get_logger().info(
+            intent.startup_message(self._intent_schema, why, self.intent_topic))
         self.odom_sub = self.create_subscription(
             Odometry, self.odom_topic, self.odom_callback, 10)
         self.joy_sub = self.create_subscription(
@@ -641,8 +653,8 @@ class DashboardNode(Node):
             f"map control {self._map_control_summary()}. "
             f"allowed origins: same-origin + "
             f"{', '.join(sorted(self.allowed_origins)) or '(none)'}. "
-            f"{'static pages served' if self.serve_static else 'static pages OFF (WebSocket only)'}. "
-            f"Once the web server starts, open http://<this car's IP>:{self.port}/ in a browser."
+            f"WebSocket only on port {self.port} (/ws): open the dashboard from "
+            f"the site (web-dashboards), not from this port."
         )
 
     # ------------------------------------------------------------------------
@@ -726,8 +738,8 @@ class DashboardNode(Node):
         a half-valid payload would draw a half-valid arrow.
         """
         try:
-            payload = intent_schema.decode(msg.data)
-            problem = intent_schema.validate(payload)
+            payload = self._intent_schema.decode(msg.data)
+            problem = self._intent_schema.validate(payload)
         except ValueError as exc:
             problem = str(exc)
             payload = None
@@ -834,8 +846,8 @@ class DashboardNode(Node):
             return
         self._last_tuning_json = None
 
-        names = [str(n) for n in self.get_parameter('tuning_nodes').value if str(n)]
-        configs = [str(c) for c in self.get_parameter('tuning_config_files').value]
+        names = [str(n) for n in self._string_list('tuning_nodes') if str(n)]
+        configs = [str(c) for c in self._string_list('tuning_config_files')]
         for index, node_name in enumerate(names):
             config_ref = configs[index] if index < len(configs) else ''
             path, path_error = self._resolve_config_path(config_ref)
@@ -1838,11 +1850,15 @@ class DashboardNode(Node):
     # ------------------------------------------------------------------------
 
     def make_app(self) -> tornado.web.Application:
-        static_dir = None
-        if self.serve_static:
-            static_dir = os.path.join(
-                get_package_share_directory('web_dashboard'), 'web')
-        return make_app(self, static_dir)
+        return make_app(self)
+
+    def _string_list(self, name):
+        """A STRING_ARRAY parameter declared with no default: unset reads
+        as an empty list rather than raising."""
+        try:
+            return list(self.get_parameter(name).value)
+        except ParameterUninitializedException:
+            return []
 
 
 def main(args=None):

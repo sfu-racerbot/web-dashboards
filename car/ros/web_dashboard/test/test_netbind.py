@@ -6,7 +6,7 @@ the way dashboard_node.py does to prove the decision has the effect it
 claims -- because the bug being guarded against here (IPv4-only listener)
 is invisible to any test that only checks a return value.
 
-    python3 -m pytest src/web_dashboard/test/test_netbind.py -v
+    python3 -m pytest car/ros/web_dashboard/test/test_netbind.py -v
 """
 import socket
 

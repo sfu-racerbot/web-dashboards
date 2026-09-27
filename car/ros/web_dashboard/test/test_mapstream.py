@@ -4,7 +4,7 @@ Unit tests for web_dashboard.mapstream -- the map keyframe/patch stream.
 No ROS, no Tornado, no network, no browser: grids are plain `bytes`. Run
 with:
 
-    python3 -m pytest src/web_dashboard/test/test_mapstream.py -v
+    python3 -m pytest car/ros/web_dashboard/test/test_mapstream.py -v
 
 The test that matters most is
 test_keyframe_then_patches_reconstruct_the_grid_exactly, which replays a
