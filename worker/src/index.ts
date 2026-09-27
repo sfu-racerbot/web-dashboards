@@ -12,6 +12,7 @@
 //   missing secret     -> 500 naming the secret (never its value)
 
 import { CAR_WS_PATH, ConfigError, parseCars, serviceToken, type CarConfig, type Env } from "./config";
+import { diagnose } from "./diagnose";
 import { accessUser } from "./headers";
 import { bridge, passthroughHttp, passthroughWebSocket } from "./proxy";
 import { parseRoute, type Route } from "./routes";
@@ -98,6 +99,9 @@ async function handle(request: Request, env: Env): Promise<Response> {
     default:
       break;
   }
+
+  // Reports on the secrets itself, so it runs before the check below.
+  if (route.kind === "check") return diagnose(env, route.car, car);
 
   // Everything below reaches the car, so it needs the service token.
   const token = serviceToken(env);

@@ -9,6 +9,7 @@
 //   /<car>/control         WebSocket passthrough -> the car's dashboard_node, role=control
 //   /<car>/bridge          WebSocket passthrough -> the car's foxglove_bridge
 //   /<car>/camera/<path>   HTTP passthrough -> the car's camera node
+//   /<car>/check           JSON: which hop between the site and the car fails
 
 import { CAR_ID_PATTERN } from "./config";
 
@@ -24,6 +25,7 @@ export type Route =
   | { kind: "control"; car: string }
   | { kind: "bridge"; car: string }
   | { kind: "camera"; car: string; path: string }
+  | { kind: "check"; car: string }
   | { kind: "not-found" };
 
 /** A path segment that could walk out of where it is put, even once decoded. */
@@ -62,6 +64,7 @@ export function parseRoute(pathname: string): Route {
     if (head === "ws") return { kind: "telemetry", car };
     if (head === "control") return { kind: "control", car };
     if (head === "bridge") return { kind: "bridge", car };
+    if (head === "check") return { kind: "check", car };
   }
   if (head === "camera" && tail.length > 0 && tail.join("/") !== "") {
     return { kind: "camera", car, path: tail.join("/") };
