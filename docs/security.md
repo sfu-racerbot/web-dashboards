@@ -30,7 +30,7 @@ The user's own Access session cookie is not forwarded to the car, for the same r
 |---|---|
 | The Worker is reachable without Access (a `workers.dev` or preview URL, a second route) | Anyone could send `Cf-Access-Authenticated-User-Email` and be any user. **`workers_dev` and `preview_urls` are off in `wrangler.jsonc`; keep them off.** |
 | An origin's Access app is removed or its policy loosened | Anyone who finds the hostname could talk to the car and claim any user. |
-| The service token leaks | Rotate it (docs/cloudflare-setup.md, step 3), then `wrangler secret put` both halves again. |
+| The service token leaks | Rotate it on its page in the dashboard ([cloudflare-setup.md](cloudflare-setup.md), step 1), then set both Worker secrets again (step 6). |
 | The Worker stops stripping browser headers | Anyone on the email list could act as anyone else, or open a control connection as the relay. |
 
 ## Deliberately not protected

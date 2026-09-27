@@ -1,0 +1,38 @@
+<!--
+  foxglove_bridge for the Advanced dashboard (Lichtblick), as the site expects it.
+
+    ros2 launch car/foxglove_bridge/racerbot_foxglove_bridge_launch.xml
+
+  Differences from the package's own foxglove_bridge_launch.xml, and why:
+    address 127.0.0.1   Only the Cloudflare tunnel (on this same machine) can reach
+                        it. Nothing on the car's WiFi can connect without logging in.
+    port 8765           The port the tunnel route rb2-bridge-origin points at.
+    remote_access false No Foxglove cloud service, ever. (It is also the default.)
+    client_topic_whitelist ['^/initialpose$']
+                        SAFETY. Lichtblick can publish to topics. The workspace rule is
+                        that anything publishing to /drive or /ackermann_cmd must
+                        implement the LB deadman, and a browser cannot. So the only
+                        topic a browser may publish to is /initialpose (seeding the
+                        particle filter, like RViz's "2D Pose Estimate"). Do not widen
+                        this to a drive topic.
+
+  Everything else is the package default: every topic and parameter can be read,
+  parameters can be set (each driving node still enforces its own bounds, and
+  enable_deadman is not settable at runtime), and every service can be called.
+  To make Advanced strictly watch-only, set capabilities to
+  "[parametersSubscribe,connectionGraph,assets]".
+-->
+<launch>
+  <arg name="address"      default="127.0.0.1" />
+  <arg name="port"         default="8765" />
+  <arg name="capabilities" default="[clientPublish,parameters,parametersSubscribe,services,connectionGraph,assets]" />
+  <arg name="client_topic_whitelist" default="['^/initialpose$']" />
+
+  <include file="$(find-pkg-share foxglove_bridge)/launch/foxglove_bridge_launch.xml">
+    <arg name="address"       value="$(var address)" />
+    <arg name="port"          value="$(var port)" />
+    <arg name="capabilities"  value="$(var capabilities)" />
+    <arg name="client_topic_whitelist" value="$(var client_topic_whitelist)" />
+    <arg name="remote_access" value="false" />
+  </include>
+</launch>

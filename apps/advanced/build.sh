@@ -4,7 +4,8 @@
 # scripts/assemble.mjs then copies it to dist/advanced/.
 #
 # Neither the source nor the output is committed (see .gitignore). This is
-# what CI runs; locally it needs Node 22+, git, ~4 GB of disk and ~5 min.
+# what Cloudflare's build (npm run build) and CI run; locally it needs
+# Node 22+, git, ~4 GB of disk and ~5 min.
 #
 #   apps/advanced/build.sh
 set -euo pipefail
@@ -23,9 +24,18 @@ fi
 
 cd "$src"
 # Lichtblick pins its Yarn version in package.json ("packageManager") and
-# refuses to run without corepack.
+# refuses to run without corepack. The shims go into .build/bin rather than
+# next to node, which may not be writable (Cloudflare's build image, a
+# system-wide Node), and are put first on PATH so they win over any
+# preinstalled yarn.
 export COREPACK_ENABLE_DOWNLOAD_PROMPT=0  # never stop to ask in CI
-corepack enable
+mkdir -p "$here/.build/bin"
+if command -v corepack >/dev/null 2>&1; then
+  corepack enable --install-directory "$here/.build/bin"
+else
+  npx --yes corepack enable --install-directory "$here/.build/bin"
+fi
+export PATH="$here/.build/bin:$PATH"
 yarn install --immutable
 yarn run web:build:prod
 echo "built Lichtblick $version: $src/web/.webpack"

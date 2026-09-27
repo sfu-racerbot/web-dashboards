@@ -15,6 +15,7 @@ Runtime behaviour that the docs don't state was read from [workerd](https://gith
 - [At a glance](#at-a-glance)
 - [Things the brief asked for that turned out not to be possible or not quite right](#things-the-brief-asked-for-that-turned-out-not-to-be-possible-or-not-quite-right)
 - [Platform: one Worker with Static Assets and a Durable Object](#platform-one-worker-with-static-assets-and-a-durable-object)
+- [Deploying: Cloudflare builds from the repo (Workers Builds)](#deploying-cloudflare-builds-from-the-repo-workers-builds)
 - [Routing](#routing)
 - [Static asset limits, and the Lichtblick build](#static-asset-limits-and-the-lichtblick-build)
 - [Proxying WebSockets from the Worker](#proxying-websockets-from-the-worker)
@@ -64,6 +65,20 @@ These are the places where this build knowingly does something other than exactl
 **SQLite-backed Durable Object.** The Free plan "can only create and access SQLite-backed Durable Objects" ([source](https://github.com/cloudflare/cloudflare-docs/blob/0d6b59726ff1ac17417e9840e4aa5af799ea89b0/src/content/partials/durable-objects/durable-objects-pricing.mdx)), hence `new_sqlite_classes` in the migration. The relay stores nothing; alarms are its only use of storage.
 
 **No `workers.dev` or preview URL.** `workers_dev: false` and `preview_urls: false`. Either would reach the Worker without passing Cloudflare Access, and then `Cf-Access-Authenticated-User-Email` — the only source of `X-Racerbot-User` — could be typed by anyone. See [security.md](security.md).
+
+## Deploying: Cloudflare builds from the repo (Workers Builds)
+
+**Decision (2026-09-27):** the site is deployed by connecting this repo to the Worker in the Cloudflare dashboard, not from GitHub Actions. Cloudflare runs `npm run build` then `npx wrangler deploy` on every push to `main`. The GitHub workflow keeps running the tests, a Lichtblick build, the asset check and a dry-run deploy, as checks, and holds no secrets.
+
+**It fits.** The free build machine has 2 vCPU, 8 GB of memory, 20 GB of disk and a 20-minute limit, with 3,000 build minutes a month ([source](https://github.com/cloudflare/cloudflare-docs/blob/0d6b59726ff1ac17417e9840e4aa5af799ea89b0/src/content/docs/workers/ci-cd/builds/limits-and-pricing.mdx)). The Lichtblick build took about 2 minutes on GitHub's runner and 3 locally.
+
+**Things the setup has to get right:**
+- The Worker's name in the dashboard must equal `name` in `wrangler.jsonc` (`racerbot-dashboard`) or the build fails ([source](https://github.com/cloudflare/cloudflare-docs/blob/0d6b59726ff1ac17417e9840e4aa5af799ea89b0/src/content/docs/workers/ci-cd/builds/index.mdx#L44-L48)).
+- Runtime secrets go under **Variables and Secrets**; the **Build variables and secrets** section is build-time only ([source](https://github.com/cloudflare/cloudflare-docs/blob/0d6b59726ff1ac17417e9840e4aa5af799ea89b0/src/content/docs/workers/ci-cd/builds/configuration.mdx)).
+- Preview builds are turned off: the site has no preview URLs, since they would skip Access.
+- The build image preinstalls Node 22 and 24 and its own Yarn ([source](https://github.com/cloudflare/cloudflare-docs/blob/0d6b59726ff1ac17417e9840e4aa5af799ea89b0/src/content/docs/workers/ci-cd/builds/build-image.mdx)). `.nvmrc` pins Node 22, and `apps/advanced/build.sh` puts corepack's Yarn shims first on `PATH` in a folder it owns, so Lichtblick gets its pinned Yarn whatever the image has.
+
+**Verified:** the GitHub workflow's build job passed on its first run (Lichtblick v1.29.1 built from source, asset check, dry-run deploy). A real Workers Builds run needs the dashboard connection, step 5 of [cloudflare-setup.md](cloudflare-setup.md).
 
 ## Routing
 

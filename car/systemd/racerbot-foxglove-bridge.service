@@ -1,0 +1,21 @@
+# Needs this repo's car/foxglove_bridge launch file at /etc/racerbot/ (install.sh copies it).
+# Installed by car/systemd/install.sh, which fills in @USER@ and @WORKSPACE@.
+[Unit]
+Description=Racerbot: foxglove_bridge for Lichtblick, localhost:8765 only
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Environment=HOME=/home/@USER@
+# Every ROS 2 command needs both workspaces sourced, in this order.
+ExecStart=/bin/bash -c 'source /opt/ros/jazzy/setup.bash && source @WORKSPACE@/install/setup.bash && exec ros2 launch /etc/racerbot/racerbot_foxglove_bridge_launch.xml'
+# SIGINT is what Ctrl+C sends; ros2 launch shuts its nodes down cleanly on it.
+KillSignal=SIGINT
+TimeoutStopSec=15
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

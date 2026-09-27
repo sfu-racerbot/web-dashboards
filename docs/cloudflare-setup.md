@@ -5,7 +5,7 @@
 > **You'll be able to:** put the dashboards live at https://dashboard.sfuracerbot.ca, open to a list of team emails and nobody else, and add a car with a config change.
 > **Time:** about an hour the first time; ten minutes per extra car.
 
-Most of this is clicking in the Cloudflare dashboard, because it sets up who is allowed in, and that should not live in a repo. Steps marked **👤 Dashboard** can only be done by a person there. Steps marked **⌨ Terminal** are commands.
+Most of this is clicking in the Cloudflare dashboard, because it sets up who is allowed in, and that should not live in a repo. Steps marked **👤 Dashboard** can only be done by a person there. A few checks are commands in a terminal.
 
 **Do the steps in order.** The Access applications come before anything is reachable, so nothing is ever briefly open to the internet.
 
@@ -13,8 +13,7 @@ Most of this is clicking in the Cloudflare dashboard, because it sets up who is 
 
 - [ ] `sfuracerbot.ca` is an active zone in the Cloudflare account, with Cloudflare managing its DNS (a "full setup").
 - [ ] Zero Trust is enabled on the account (**Zero Trust** in the dashboard's left bar opens without asking you to sign up), with a login method — the built-in **One-time PIN** (a code by email) is enough.
-- [ ] The car runs `cloudflared` as a remote-managed tunnel — the car session's docs cover installing it. You need to know its tunnel's name in **Networking** > **Tunnels**.
-- [ ] You can run `npx wrangler login` on your laptop, or have a Cloudflare API token (step 7).
+- [ ] The car has its tunnel and three servers set up, following [car/README.md](../car/README.md). (Its step 4 sends you back here for the Access and route steps.)
 
 **Hostnames stay one level deep** (`rb2-dash-origin.sfuracerbot.ca`, not `dash.rb2.sfuracerbot.ca`). Cloudflare's free Universal SSL certificate covers `sfuracerbot.ca` and `*.sfuracerbot.ca` only, so a deeper name would have no certificate.
 
@@ -79,51 +78,56 @@ curl -s -o /dev/null -w "%{http_code}\n" https://rb2-dash-origin.sfuracerbot.ca/
 
 prints `401`. That is Access refusing a request with no token — correct. A `200` means step 2 is missing a hostname: fix that first.
 
-## 5. Deploy the Worker — ⌨ Terminal
+## 5. Connect this repo to Cloudflare, so every merge deploys — 👤 Dashboard
 
-**Terminal 1**, from the repo root, the first time only (after this, every merge to `main` deploys by itself, step 7):
+Cloudflare builds and deploys the site itself, straight from GitHub (this is called **Workers Builds**). Nothing is deployed from GitHub Actions, and **GitHub needs no secrets**.
 
-```bash
-npm ci
-apps/advanced/build.sh
-node scripts/assemble.mjs --require-advanced
-npx wrangler login
-npx wrangler deploy
-```
+1. Go to **Workers & Pages**, select **Create application**, then **Get started** next to **Import a repository**.
+2. Connect GitHub if asked, and choose `sfu-racerbot/web-dashboards`.
+3. Configure the project:
 
-**Working when:** the last command ends by listing `dashboard.sfuracerbot.ca (custom domain)`. Wrangler creates the DNS record and certificate for the custom domain.
+   | Setting | Value | Why |
+   |---|---|---|
+   | Project (Worker) name | `racerbot-dashboard` | Must match `name` in `wrangler.jsonc`, or the build fails |
+   | Build command | `npm run build` | Builds Lichtblick from source and assembles `dist/` (about 5 minutes) |
+   | Deploy command | `npx wrangler deploy` | The default |
+   | Root directory | `/` | The default |
+   | Production branch | `main` | |
 
-**If it doesn't:** "a DNS record already exists" means something else already uses `dashboard.sfuracerbot.ca`; delete that record in **DNS** > **Records** and deploy again.
+4. Select **Save and Deploy**.
+5. In the new Worker, go to **Settings** > **Build** > **Branch control** and **untick Enable Preview Builds**. The site has no preview URLs (they would skip Access), so preview builds could only fail.
 
-## 6. Give the Worker the service token — ⌨ Terminal
+**Working when:** the build log ends with the deploy listing `dashboard.sfuracerbot.ca (custom domain)`. The landing page opens, but the dashboards cannot reach the car yet, and their sockets answer `secret ACCESS_CLIENT_ID is not set` — expected until step 6.
 
-**Terminal 1**, from the repo root:
+**If it doesn't:**
+- "The name in your Wrangler configuration file … must match": the project name in step 3 was different. Rename the Worker, or change `name` in `wrangler.jsonc` to match.
+- The deploy fails on the custom domain (permissions, or "a DNS record already exists"): delete any old `dashboard` record in **DNS** > **Records**, or add the domain by hand in the Worker's **Settings** > **Domains & Routes** > **Add** > **Custom domain**, then **Retry build**.
+- The build runs out of time or memory: Cloudflare's free build machine has 2 CPUs, 8 GB and 20 minutes; the build needs about a third of that. Retry once; if it recurs, see `apps/advanced/README.md`.
 
-```bash
-npx wrangler secret put ACCESS_CLIENT_ID
-npx wrangler secret put ACCESS_CLIENT_SECRET
-```
+Every push to `main` from then on deploys by itself. The GitHub Actions workflow still runs the tests and a Lichtblick build on every pull request, as a check, with no secrets.
 
-Each asks for the value; paste the ID, then the secret, from step 1. Secrets are stored encrypted by Cloudflare and survive every later deploy. They are never in the repo or in CI.
+## 6. Give the Worker the service token — 👤 Dashboard
 
-**Working when:** `npx wrangler secret list` shows both names (never their values).
+These are the Worker's **runtime** secrets. They are set once, in Cloudflare, and survive every later deploy. They are never in the repo or in GitHub.
 
-## 7. Let GitHub deploy on every merge — 👤 Dashboard, then GitHub
+1. In **Workers & Pages**, open `racerbot-dashboard`, go to **Settings** > **Variables and Secrets**, and select **Add**.
+2. **Type:** Secret. **Variable name:** `ACCESS_CLIENT_ID`. **Value:** the Client ID from step 1. Deploy.
+3. Again for `ACCESS_CLIENT_SECRET`, with the Client Secret.
 
-1. In the Cloudflare dashboard, **My Profile** > **API Tokens** > **Create Token**, template **Edit Cloudflare Workers**. Limit it to this account and the `sfuracerbot.ca` zone.
-2. Copy the account ID from **Workers & Pages** (right-hand column).
-3. In GitHub, **sfu-racerbot/web-dashboards** > **Settings** > **Secrets and variables** > **Actions**, add repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+Put them under **Variables and Secrets**, not under **Settings** > **Build** > **Build variables and secrets** — those exist only while building and the running site never sees them.
 
-**Working when:** the next push to `main` runs the `ci` workflow's `deploy` job green. (It uses a GitHub environment called `production`, created on first use; add required reviewers to it there if deploys should need an approval.)
+**Working when:** both names are listed as secrets (their values are hidden).
 
-## 8. Check it end to end
+(The same thing from a terminal, if you prefer: `npx wrangler secret put ACCESS_CLIENT_ID`, then `ACCESS_CLIENT_SECRET`.)
+
+## 7. Check it end to end
 
 With the car on and its tunnel, `dashboard_node`, `foxglove_bridge` and camera running:
 
 1. Open https://dashboard.sfuracerbot.ca in a private window. **Working when:** Access asks for your email, then the landing page lists **Car 2**.
 2. Open **Simple**. **Working when:** the link row under `CONNECTED` reads `CAR ONLINE · 1 WATCHING`, the map and scan draw, and the camera inset shows video.
 3. Open **Advanced** in Chrome or Edge. **Working when:** Lichtblick opens already connected to `wss://dashboard.sfuracerbot.ca/rb2/bridge` and the topic list fills in.
-4. In the Cloudflare dashboard, **Workers & Pages** > `racerbot-dashboard` > **Logs**. **Working when:** you see `upstream_connect` for `rb2` and a `bridge_connect` with your email.
+4. In the Cloudflare dashboard, **Workers & Pages** > `racerbot-dashboard` > **Observability** (logs). **Working when:** you see `upstream_connect` for `rb2` and a `bridge_connect` with your email.
 
 **If Simple says `CAR OFFLINE`:** the relay could not reach the car. The row's tooltip, and the `upstream_failed` log line, say why: a secret not set (step 6), an origin answering 401/403 (step 2 or 4), or the car's dashboard_node not running.
 

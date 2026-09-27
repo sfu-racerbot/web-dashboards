@@ -51,7 +51,9 @@ describe('the mock car', () => {
     for (const t of ['map', 'scan', 'batch', 'tuning', 'processes', 'saved_maps']) assert.ok(types.has(t), t);
     for (let i = 0; i < got.length; i++) {
       const m = got[i];
-      if (m.json && typeof m.json.bytes === 'number') {
+      // The collection window can close between a header and its binary;
+      // a header that is the very last thing collected proves nothing.
+      if (m.json && typeof m.json.bytes === 'number' && i + 1 < got.length) {
         assert.ok(got[i + 1] && got[i + 1].binary, `${m.json.type} is followed by a binary`);
         assert.equal(got[i + 1].binary.length, m.json.bytes, `${m.json.type} binary length`);
       }

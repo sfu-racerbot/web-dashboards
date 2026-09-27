@@ -16,7 +16,8 @@
     "assemble": "node scripts/assemble.mjs",
     "dev": "node scripts/assemble.mjs && wrangler dev",
     "mock": "node tools/mock-car/server.mjs",
-    "deploy": "node scripts/assemble.mjs --require-advanced && wrangler deploy"
+    "deploy": "npm run build && wrangler deploy",
+    "build": "apps/advanced/build.sh && node scripts/assemble.mjs --require-advanced"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260926.1",

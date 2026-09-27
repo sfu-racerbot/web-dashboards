@@ -16,7 +16,7 @@
 | `build.sh` | Clones that tag and runs Lichtblick's own `web:build:prod`. Output goes to `.build/`, which git ignores. |
 | `layouts/racerbot-default.json` | The layout a browser gets the first time it opens Advanced. |
 
-Neither Lichtblick's source nor its build output is committed. CI builds it from source on every pull request and every deploy.
+Neither Lichtblick's source nor its build output is committed. Cloudflare's build (Workers Builds, `npm run build`) builds it from source on every deploy, and the GitHub workflow does the same on every push as a check.
 
 ## Building it locally
 
