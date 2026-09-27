@@ -24,6 +24,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { LateJoinerCache, shouldBroadcast, type Outgoing } from "./cache";
 import { CAR_WS_PATH, parseCars, serviceToken, upstreamIdleMs, type Env } from "./config";
+import { probe, type HopResult } from "./diagnose";
 import { Framer } from "./framing";
 import { refusalReason } from "./proxy";
 import {
@@ -83,6 +84,23 @@ export class CarRelay extends DurableObject<Env> {
   async status(): Promise<{ car_connected: boolean; viewers: number; since: number | null; error?: string }> {
     const { type: _type, ...rest } = relayStatus(this.carConnected, this.viewers().length, this.since, this.upstreamError);
     return rest;
+  }
+
+  /** For /<car>/check: open the car connection exactly as connectUpstream does, from here, and close it. */
+  async probeUpstream(): Promise<HopResult> {
+    const token = serviceToken(this.env);
+    const car = parseCars(this.env.CARS).get(this.car);
+    if (!token.ok || !car) {
+      return { name: "relay websocket", url: "", ok: false, status: null, meaning: "The relay has no token or no config for this car." };
+    }
+    const result = await probe("relay websocket", `${car.dash_origin}${CAR_WS_PATH}?role=relay`, {
+      Upgrade: "websocket",
+      "CF-Access-Client-Id": token.id,
+      "CF-Access-Client-Secret": token.secret,
+      "X-Racerbot-Role": "relay",
+      Origin: this.env.PUBLIC_ORIGIN,
+    });
+    return { ...result, name: "relay websocket (from the Durable Object)" };
   }
 
   override async fetch(request: Request): Promise<Response> {

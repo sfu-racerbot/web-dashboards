@@ -8,25 +8,28 @@
                         it. Nothing on the car's WiFi can connect without logging in.
     port 8765           The port the tunnel route rb2-bridge-origin points at.
     remote_access false No Foxglove cloud service, ever. (It is also the default.)
-    client_topic_whitelist ['^/initialpose$']
-                        SAFETY. Lichtblick can publish to topics. The workspace rule is
-                        that anything publishing to /drive or /ackermann_cmd must
-                        implement the LB deadman, and a browser cannot. So the only
-                        topic a browser may publish to is /initialpose (seeding the
-                        particle filter, like RViz's "2D Pose Estimate"). Do not widen
-                        this to a drive topic.
+    no clientPublish    SAFETY. A browser cannot publish to any topic.
+                        The workspace rule is that anything publishing to /drive or
+                        /ackermann_cmd must implement the LB deadman, and a browser
+                        cannot. /initialpose is excluded too: re-seeding the particle
+                        filter under a moving controller gives it a confidently wrong
+                        pose, which the car workspace treats as more dangerous than no
+                        pose. Seed localization from RViz on the car, as before.
+    client_topic_whitelist is left empty-matching as a second lock, in case
+    clientPublish is ever added back.
 
-  Everything else is the package default: every topic and parameter can be read,
-  parameters can be set (each driving node still enforces its own bounds, and
-  enable_deadman is not settable at runtime), and every service can be called.
-  To make Advanced strictly watch-only, set capabilities to
+  What Lichtblick can still do: read every topic, read and set parameters
+  (each driving node enforces its own bounds, and enable_deadman cannot be set
+  at runtime), and call services. For strictly watch-only, set capabilities to
   "[parametersSubscribe,connectionGraph,assets]".
 -->
 <launch>
   <arg name="address"      default="127.0.0.1" />
   <arg name="port"         default="8765" />
-  <arg name="capabilities" default="[clientPublish,parameters,parametersSubscribe,services,connectionGraph,assets]" />
-  <arg name="client_topic_whitelist" default="['^/initialpose$']" />
+  <arg name="capabilities" default="[parameters,parametersSubscribe,services,connectionGraph,assets]" />
+  <!-- A never-matching pattern: an empty array does not survive the launch
+       frontend (see the package's own launch file). -->
+  <arg name="client_topic_whitelist" default="['(?!)']" />
 
   <include file="$(find-pkg-share foxglove_bridge)/launch/foxglove_bridge_launch.xml">
     <arg name="address"       value="$(var address)" />

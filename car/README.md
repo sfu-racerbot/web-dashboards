@@ -23,7 +23,7 @@ A **tunnel** is a program on the car that keeps an outgoing connection open to C
 | Path | What it is |
 |---|---|
 | [`cloudflared/install.sh`](cloudflared/install.sh) | Installs `cloudflared` from Cloudflare's package repository and runs the car's tunnel as a service |
-| [`foxglove_bridge/racerbot_foxglove_bridge_launch.xml`](foxglove_bridge/racerbot_foxglove_bridge_launch.xml) | Launches the bridge the way the site expects: localhost only, port 8765, no Foxglove cloud, and browsers may publish to `/initialpose` only |
+| [`foxglove_bridge/racerbot_foxglove_bridge_launch.xml`](foxglove_bridge/racerbot_foxglove_bridge_launch.xml) | Launches the bridge the way the site expects: localhost only, port 8765, no Foxglove cloud, and browsers cannot publish to any topic |
 | [`systemd/`](systemd/) | Three services and an installer, so the three servers start at boot |
 | [`check.sh`](check.sh) | Says whether everything is running. Read-only; run it any time |
 
@@ -142,9 +142,11 @@ Open https://dashboard.sfuracerbot.ca, log in, and open **Simple** for the car.
 
 `dashboard_node` and `usb_cam_stream` publish to no drive topic; the car workspace documents both as safe to leave running during a race. Starting them at boot changes nothing about how the car drives.
 
-**The bridge lets a browser publish to `/initialpose` and nothing else.** Do not widen `client_topic_whitelist` to a drive topic.
+**The bridge lets a browser publish to no topic at all.** Do not add `clientPublish` back to its capabilities.
 
-The car workspace's rule is that anything publishing to `/drive` or `/ackermann_cmd` must implement the LB deadman: let go of the gamepad's LB button and the car stops. A browser tab cannot do that. So a topic Lichtblick could publish to must never be one that moves the car.
+The car workspace's rule is that anything publishing to `/drive` or `/ackermann_cmd` must implement the LB deadman: let go of the gamepad's LB button and the car stops. A browser tab cannot do that.
+
+`/initialpose` is off too. Re-seeding localization under a moving controller gives it a confidently wrong position, which the car workspace treats as more dangerous than no position. Seed it from RViz on the car, as before.
 
 **Lichtblick can still set parameters and call services** without the simple dashboard's arming step. Each driving node enforces its own parameter bounds, and `enable_deadman` cannot be changed at runtime. But a service call like `/slam_toolbox/reset` goes through with no "is anything driving?" check. For a watch-only Advanced, set `capabilities` in the bridge launch file as its comment says.
 

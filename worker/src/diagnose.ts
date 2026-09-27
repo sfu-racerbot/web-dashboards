@@ -9,6 +9,8 @@
 
 import { CAR_WS_PATH, serviceToken, tokenShape, type CarConfig, type Env } from "./config";
 
+export type Hop = "dashboard websocket" | "relay websocket" | "bridge" | "camera";
+
 export interface HopResult {
   name: string;
   url: string;
@@ -19,9 +21,11 @@ export interface HopResult {
 }
 
 export const WAF_FIX =
-  "In Security > WAF > Custom rules (or Security rules), edit the challenge rule so it does not apply to "
-  + "the Worker's own requests: add `and cf.worker.upstream_zone != \"sfuracerbot.ca\"` to the end of its expression. "
-  + "The car's -origin hostnames are already closed to everyone but the Worker by their Service Auth Access policy. "
+  "In Security rules, edit the challenge rule so it skips the car's -origin hostnames: add "
+  + "`and not http.host contains \"-origin.sfuracerbot.ca\"` to the end of its expression. "
+  + "(`cf.worker.upstream_zone` is not enough: the relay runs in a Durable Object, whose requests are not "
+  + "tagged with a zone, so it stays challenged while the other routes get through.) "
+  + "The -origin hostnames stay closed to everyone but the site by their Service Auth Access policy. "
   + "See docs/cloudflare-setup.md, \"If your zone has a WAF challenge rule\".";
 
 /** Cloudflare's own error pages carry "error code: 1033" or "Error 1033". */
@@ -32,7 +36,7 @@ export function cloudflareErrorCode(body: string): number | null {
 
 /** Turn one origin's answer into a sentence. Pure, so it is unit-tested. */
 export function explain(
-  hop: "dashboard" | "dashboard websocket" | "bridge" | "camera",
+  hop: Hop,
   status: number,
   location: string | null,
   errorCode: number | null,
@@ -97,7 +101,7 @@ export function explain(
           : "On the car: is dashboard_node running on port 8080? `car/check.sh` says. Also check the tunnel route's service URL is http://localhost:8080.",
     };
   }
-  if (hop === "dashboard websocket") {
+  if (hop === "dashboard websocket" || hop === "relay websocket") {
     if (status === 101) return { ok: true, meaning: "The car's dashboard_node accepted a WebSocket, as the relay needs." };
     return {
       ok: false,
@@ -108,17 +112,21 @@ export function explain(
     };
   }
   if (hop === "bridge") {
-    // A plain GET to a WebSocket-only server gets a 4xx; any answer from the
-    // bridge itself means the path works.
-    if (status >= 200 && status < 500) return { ok: true, meaning: `foxglove_bridge answered (HTTP ${status}, expected for a plain request).` };
+    // Probed as a real foxglove handshake (see diagnose()), so only 101 is right.
+    if (status === 101) return { ok: true, meaning: "foxglove_bridge accepted a foxglove.sdk.v1 WebSocket, as Lichtblick needs." };
+    return {
+      ok: false,
+      meaning: `foxglove_bridge answered HTTP ${status} to a foxglove WebSocket handshake.`,
+      fix: "Check the route rb2-bridge-origin is http://localhost:8765 and that foxglove_bridge runs there (car/check.sh).",
+    };
   }
   if (status >= 200 && status < 400) return { ok: true, meaning: `Reached (HTTP ${status}).` };
   if (status === 404 && hop === "camera") return { ok: true, meaning: "The camera node answered (HTTP 404 for its front page is fine)." };
   return { ok: false, meaning: `Unexpected answer: HTTP ${status}.` };
 }
 
-async function probe(
-  hop: "dashboard" | "dashboard websocket" | "bridge" | "camera",
+export async function probe(
+  hop: Hop,
   url: string,
   headers: Record<string, string>,
 ): Promise<HopResult> {
@@ -184,9 +192,22 @@ export async function diagnose(env: Env, carId: string, car: CarConfig): Promise
       probe("dashboard websocket", `${car.dash_origin}${CAR_WS_PATH}?role=relay`, {
         ...auth, Upgrade: "websocket", "X-Racerbot-Role": "relay", Origin: env.PUBLIC_ORIGIN,
       }),
-      probe("bridge", `${car.bridge_origin}/`, auth),
+      probe("bridge", `${car.bridge_origin}/`, {
+        ...auth, Upgrade: "websocket", "Sec-WebSocket-Protocol": "foxglove.sdk.v1, foxglove.websocket.v1", Origin: env.PUBLIC_ORIGIN,
+      }),
       probe("camera", `${car.cam_origin}/`, auth),
     ]));
+  }
+  // The same car connection, attempted from inside the relay (the Durable
+  // Object). Its requests can be treated differently from the Worker's --
+  // zone security rules keyed on cf.worker.upstream_zone do not see it as
+  // the site -- so the Worker-side probe above passing proves nothing about it.
+  if (token.ok) {
+    try {
+      results.push(await env.CAR_RELAY.getByName(carId).probeUpstream());
+    } catch (err) {
+      results.push({ name: "relay websocket", url: "", ok: false, status: null, meaning: `Could not ask the relay to test its connection: ${(err as Error).message}` });
+    }
   }
   let relay: unknown;
   try {

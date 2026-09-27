@@ -143,27 +143,27 @@ With the car on and its tunnel, `dashboard_node`, `foxglove_bridge` and camera r
 
 ## If your zone has a WAF challenge rule — 👤 Dashboard
 
-**A zone-wide bot or WAF challenge stops the site from reaching the car.** The site's Worker talks to the car's `-origin` hostnames, which are in the same zone, and Cloudflare runs those requests through the zone's security rules like any visitor's. A browser can solve a challenge; a Worker cannot. So the Worker gets a challenge page back, and the car shows as offline.
+**A zone-wide bot or WAF challenge stops the site from reaching the car.** The site reaches the car through the car's `-origin` hostnames, which are in the same zone, so Cloudflare runs those requests through the zone's security rules like any visitor's. A browser can solve a challenge; the site cannot. It gets a challenge page back, and the car shows as offline.
 
 `/rb2/check` names this directly: "A Cloudflare WAF / bot challenge answered instead of the car".
 
-**The fix:** let the Worker's own requests past the rule. Everything else stays challenged.
+**The fix:** let requests to the car's `-origin` hostnames skip the rule. Everything else stays challenged.
 
 1. Go to **Security rules** for `sfuracerbot.ca`, and edit the rule that challenges.
 2. Select **Edit expression**, and add this to the end of the expression:
 
    ```txt
-   and cf.worker.upstream_zone != "sfuracerbot.ca"
+   and not http.host contains "-origin.sfuracerbot.ca"
    ```
 
-   Keep the brackets around the existing expression if it has more than one condition, for example `(… existing …) and cf.worker.upstream_zone != "sfuracerbot.ca"`.
+   Keep the brackets around the existing expression if it has more than one condition, for example `(… existing …) and not http.host contains "-origin.sfuracerbot.ca"`.
 3. Select **Deploy**.
 
-**Working when:** `/rb2/check` shows every hop as ok, and Simple reads `CAR ONLINE`.
+**Working when:** every line in `/rb2/check` says ok, **including `relay websocket (from the Durable Object)`**, and Simple reads `CAR ONLINE`.
 
-**Why this is safe.** `cf.worker.upstream_zone` is set by Cloudflare, not by the request: only a Worker running on `sfuracerbot.ca` gets that value, so nobody can fake it from outside. The car's `-origin` hostnames also stay locked to the site's service token by their Access policy (step 2), challenge or not. Visitors to `dashboard.sfuracerbot.ca` are still challenged as before. The same field is what [Cloudflare's own WAF docs](https://developers.cloudflare.com/waf/rate-limiting-rules/troubleshooting/) use to exclude same-zone Worker requests from a rule.
+**Why not `cf.worker.upstream_zone`?** That field marks requests made by a Worker on your zone, and it does let the Worker's own routes (Advanced, camera) through. But the relay that feeds Simple runs in a Durable Object, whose requests are not tagged with a zone. With only that exception, Advanced and the camera work while Simple stays offline. Skipping by hostname covers both, and every new car too, as long as its hostnames follow the `<car>-…-origin` pattern.
 
-If you would rather not touch the zone-wide rule, the alternative is to exclude the car hostnames instead: `and not http.host in {"rb2-dash-origin.sfuracerbot.ca" "rb2-bridge-origin.sfuracerbot.ca" "rb2-cam-origin.sfuracerbot.ca"}`. That has to be extended for every new car, which is why the Worker-based condition above is the recommended one.
+**Why this is safe.** The `-origin` hostnames are not open because the challenge skips them: each is locked by its own Access application to the site's service token (step 2), so anyone else gets a 401 or a login page.
 
 ## Adding a car
 

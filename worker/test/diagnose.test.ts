@@ -26,14 +26,17 @@ describe("/<car>/check", () => {
     const challenged = explain("dashboard websocket", 403, null, null, "challenge");
     expect(challenged.ok).toBe(false);
     expect(challenged.meaning).toMatch(/challenge/);
-    expect(challenged.fix).toMatch(/cf\.worker\.upstream_zone/);
-    expect(explain("camera", 403, null, 1020).fix).toMatch(/cf\.worker\.upstream_zone/);
+    expect(challenged.fix).toMatch(/-origin\.sfuracerbot\.ca/);
+    expect(explain("relay websocket", 403, null, null, "challenge").fix).toMatch(/Durable Object/);
+    expect(explain("camera", 403, null, 1020).fix).toMatch(/-origin\.sfuracerbot\.ca/);
   });
 
   it("recognises working answers", () => {
     expect(explain("dashboard websocket", 101, null, null).ok).toBe(true);
     expect(explain("dashboard", 200, null, null).ok).toBe(true);
-    expect(explain("bridge", 400, null, null).ok).toBe(true);
+    expect(explain("bridge", 101, null, null).ok).toBe(true);
+    expect(explain("bridge", 400, null, null).ok).toBe(false);
+    expect(explain("relay websocket", 101, null, null).ok).toBe(true);
     expect(explain("camera", 404, null, null).ok).toBe(true);
     expect(explain("dashboard", 500, null, null).ok).toBe(false);
   });

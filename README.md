@@ -40,7 +40,7 @@ Open **https://dashboard.sfuracerbot.ca**, log in with your team email, and pick
 |---|---|---|
 | What it is | The team's own dashboard, built for the car | [Lichtblick](https://github.com/lichtblick-suite/lichtblick), the open-source fork of Foxglove Studio |
 | Shows | Map, LiDAR, pose, drive intent and decision log, speed and steering, camera, stopwatch, CPU/temperature | Every ROS 2 topic, in 3D, plots, images and raw messages |
-| Can change | Driving parameters (after arming), stop a driving process, delete a saved map, reset SLAM | Any node's parameters; call services; publish `/initialpose` only |
+| Can change | Driving parameters (after arming), stop a driving process, delete a saved map, reset SLAM | Any node's parameters; call services; publish nothing |
 | Runs on | Any current browser, phone included | Chrome or Edge on a laptop |
 | Best for | Trackside, and everyone watching | Engineers digging into a problem |
 
@@ -149,7 +149,7 @@ Advanced needs Lichtblick built once first (`apps/advanced/build.sh`, a few minu
 
 **What does it cost?** Nothing on Cloudflare's free plan, up to about 13 hours of watching a day. Workers Paid ($5 a month) covers about 130 hours a month, then under a cent an hour. See [docs/costs.md](docs/costs.md).
 
-**Can Advanced drive the car?** No. The bridge lets a browser publish only `/initialpose`; nothing on the site can publish a drive command. See [car/README.md](car/README.md#safety).
+**Can Advanced drive the car?** No. The bridge lets a browser publish to no topic at all, so nothing on the site can send a drive command. See [car/README.md](car/README.md#safety).
 
 ## All the docs
 

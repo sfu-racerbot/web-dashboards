@@ -15,7 +15,7 @@
 #
 # None of these publishes a drive command, so none of them can move the car:
 # the car repo documents web_dashboard and usb_cam_stream as safe to leave
-# running at all times, and the bridge only lets a browser publish /initialpose.
+# running at all times, and the bridge lets a browser publish to no topic at all.
 set -euo pipefail
 
 if [ "$(id -u)" -ne 0 ]; then echo "run with sudo" >&2; exit 1; fi
