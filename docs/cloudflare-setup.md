@@ -88,7 +88,7 @@ Cloudflare builds and deploys the site itself, straight from GitHub (this is cal
 
    | Setting | Value | Why |
    |---|---|---|
-   | Project (Worker) name | `racerbot-dashboard` | Must match `name` in `wrangler.jsonc`, or the build fails |
+   | Project (Worker) name | `web-dashboards` | Must match `name` in `wrangler.jsonc`, or the build fails |
    | Build command | `npm run build` | Builds Lichtblick from source and assembles `dist/` (about 5 minutes) |
    | Deploy command | `npx wrangler deploy` | The default |
    | Root directory | `/` | The default |
@@ -110,11 +110,11 @@ Every push to `main` from then on deploys by itself. The GitHub Actions workflow
 
 These are the Worker's **runtime** secrets. They are set once, in Cloudflare, and survive every later deploy. They are never in the repo or in GitHub.
 
-1. In **Workers & Pages**, open `racerbot-dashboard`, go to **Settings** > **Variables and Secrets**, and select **Add**.
+1. In **Workers & Pages**, open `web-dashboards`, go to **Settings** > **Variables and Secrets**, and select **Add**.
 2. **Type:** Secret. **Variable name:** `ACCESS_CLIENT_ID`. **Value:** the Client ID from step 1. Deploy.
 3. Again for `ACCESS_CLIENT_SECRET`, with the Client Secret.
 
-Put them under **Variables and Secrets**, not under **Settings** > **Build** > **Build variables and secrets** — those exist only while building and the running site never sees them.
+**Watch out: the Settings page has two boxes called "Variables and secrets".** Use the one in the **Variables and Secrets** section (near the top, next to **Bindings** in the right-hand menu). **Not** the one inside the **Builds** section, which sits between **API token** and **Deploy Hooks**. That one only exists while the site is being built, and the running site never sees it. If `/rb2/check` says a secret is missing while you can see it in the dashboard, this is almost always why.
 
 **Working when:** both names are listed as secrets (their values are hidden).
 
@@ -127,7 +127,7 @@ With the car on and its tunnel, `dashboard_node`, `foxglove_bridge` and camera r
 1. Open https://dashboard.sfuracerbot.ca in a private window. **Working when:** Access asks for your email, then the landing page lists **Car 2**.
 2. Open **Simple**. **Working when:** the link row under `CONNECTED` reads `CAR ONLINE · 1 WATCHING`, the map and scan draw, and the camera inset shows video.
 3. Open **Advanced** in Chrome or Edge. **Working when:** Lichtblick opens already connected to `wss://dashboard.sfuracerbot.ca/rb2/bridge` and the topic list fills in.
-4. In the Cloudflare dashboard, **Workers & Pages** > `racerbot-dashboard` > **Observability** (logs). **Working when:** you see `upstream_connect` for `rb2` and a `bridge_connect` with your email.
+4. In the Cloudflare dashboard, **Workers & Pages** > `web-dashboards` > **Observability** (logs). **Working when:** you see `upstream_connect` for `rb2` and a `bridge_connect` with your email.
 
 **If anything fails, open https://dashboard.sfuracerbot.ca/rb2/check first.** It tests every hop from the site to the car and names the step to fix.
 

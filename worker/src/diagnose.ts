@@ -158,7 +158,7 @@ export async function diagnose(env: Env, carId: string, car: CarConfig): Promise
     results.push({
       name: "worker secrets", url: "", ok: false, status: null,
       meaning: `The running Worker has no ${missing.join(" and no ")}, so the site cannot identify itself to the car.`,
-      fix: "Workers & Pages > racerbot-dashboard > Settings > Variables and Secrets > Add, with Type: Secret "
+      fix: "Workers & Pages > web-dashboards > Settings > Variables and Secrets > Add, with Type: Secret "
         + "(not Text: a Text variable is deleted by the next deploy, and every push to main deploys). "
         + "Names exactly ACCESS_CLIENT_ID and ACCESS_CLIENT_SECRET, no spaces. Not under Settings > Build, "
         + "and not under Preview settings. Save/Deploy, then reload this page."

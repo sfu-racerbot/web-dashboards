@@ -58,7 +58,7 @@ These are the places where this build knowingly does something other than exactl
 
 ## Platform: one Worker with Static Assets and a Durable Object
 
-**Decision:** one Worker (`racerbot-dashboard`), with Workers Static Assets for the three pages and one Durable Object class, `CarRelay`. Configured in [`wrangler.jsonc`](../wrangler.jsonc).
+**Decision:** one Worker (`web-dashboards`), with Workers Static Assets for the three pages and one Durable Object class, `CarRelay`. Configured in [`wrangler.jsonc`](../wrangler.jsonc).
 
 **Why not Pages + Functions:** Cloudflare's Pages-to-Workers migration guide says Pages cannot define a Durable Object itself: "you must create a separate Worker with a Durable Object … Using Durable Objects with Workers is simpler and recommended" ([source](https://github.com/cloudflare/cloudflare-docs/blob/0d6b59726ff1ac17417e9840e4aa5af799ea89b0/src/content/docs/workers/static-assets/migration-guides/migrate-from-pages.mdx#L487), public page: *Migrate from Pages to Workers*). That would be two deployables for one site. Pages brought nothing this site needs.
 
@@ -73,7 +73,7 @@ These are the places where this build knowingly does something other than exactl
 **It fits.** The free build machine has 2 vCPU, 8 GB of memory, 20 GB of disk and a 20-minute limit, with 3,000 build minutes a month ([source](https://github.com/cloudflare/cloudflare-docs/blob/0d6b59726ff1ac17417e9840e4aa5af799ea89b0/src/content/docs/workers/ci-cd/builds/limits-and-pricing.mdx)). The Lichtblick build took about 2 minutes on GitHub's runner and 3 locally.
 
 **Things the setup has to get right:**
-- The Worker's name in the dashboard must equal `name` in `wrangler.jsonc` (`racerbot-dashboard`) or the build fails ([source](https://github.com/cloudflare/cloudflare-docs/blob/0d6b59726ff1ac17417e9840e4aa5af799ea89b0/src/content/docs/workers/ci-cd/builds/index.mdx#L44-L48)).
+- The Worker's name in the dashboard must equal `name` in `wrangler.jsonc` (`web-dashboards`) or the build fails ([source](https://github.com/cloudflare/cloudflare-docs/blob/0d6b59726ff1ac17417e9840e4aa5af799ea89b0/src/content/docs/workers/ci-cd/builds/index.mdx#L44-L48)).
 - Runtime secrets go under **Variables and Secrets**; the **Build variables and secrets** section is build-time only ([source](https://github.com/cloudflare/cloudflare-docs/blob/0d6b59726ff1ac17417e9840e4aa5af799ea89b0/src/content/docs/workers/ci-cd/builds/configuration.mdx)).
 - Preview builds are turned off: the site has no preview URLs, since they would skip Access.
 - The build image preinstalls Node 22 and 24 and its own Yarn ([source](https://github.com/cloudflare/cloudflare-docs/blob/0d6b59726ff1ac17417e9840e4aa5af799ea89b0/src/content/docs/workers/ci-cd/builds/build-image.mdx)). `.nvmrc` pins Node 22, and `apps/advanced/build.sh` puts corepack's Yarn shims first on `PATH` in a folder it owns, so Lichtblick gets its pinned Yarn whatever the image has.

@@ -4,7 +4,7 @@
 // docs/cloudflare-setup.md for the parts only a person can do.
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "racerbot-dashboard",
+  "name": "web-dashboards",
   "main": "worker/src/index.ts",
   "compatibility_date": "2026-09-26",
 
