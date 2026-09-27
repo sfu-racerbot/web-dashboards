@@ -108,17 +108,25 @@ Every push to `main` from then on deploys by itself. The GitHub Actions workflow
 
 ## 6. Give the Worker the service token — 👤 Dashboard
 
-These are the Worker's **runtime** secrets. They are set once, in Cloudflare, and survive every later deploy. They are never in the repo or in GitHub.
+The site needs the service token from step 1 while it runs, to open the car's hostnames. You add it once, as two **runtime secrets**. They stay through every later deploy, and never go in the repo or GitHub.
 
-1. In **Workers & Pages**, open `web-dashboards`, go to **Settings** > **Variables and Secrets**, and select **Add**.
-2. **Type:** Secret. **Variable name:** `ACCESS_CLIENT_ID`. **Value:** the Client ID from step 1. Deploy.
-3. Again for `ACCESS_CLIENT_SECRET`, with the Client Secret.
+1. In **Workers & Pages**, open **`web-dashboards`** and go to its **Settings** tab.
+2. Find the section headed **Runtime variables and secrets**. Make sure **Production** is selected next to the heading, not **Previews Base**.
+3. Select **Add variable**, then fill in:
 
-**Watch out: the Settings page has two boxes called "Variables and secrets".** Use the one in the **Variables and Secrets** section (near the top, next to **Bindings** in the right-hand menu). **Not** the one inside the **Builds** section, which sits between **API token** and **Deploy Hooks**. That one only exists while the site is being built, and the running site never sees it. If `/rb2/check` says a secret is missing while you can see it in the dashboard, this is almost always why.
+   | Type | Name | Value |
+   |---|---|---|
+   | **Secret** | `ACCESS_CLIENT_ID` | the Client ID from step 1 |
+   | **Secret** | `ACCESS_CLIENT_SECRET` | the Client Secret from step 1 |
 
-**Working when:** both names are listed as secrets (their values are hidden).
+   Type must be **Secret**, not Variable. Names must be exactly as shown, in capitals.
+4. Select **Deploy** to save.
 
-(The same thing from a terminal, if you prefer: `npx wrangler secret put ACCESS_CLIENT_ID`, then `ACCESS_CLIENT_SECRET`.)
+**Working when:** the **Runtime variables and secrets** table lists both names with Type `Secret` and `Value encrypted`. The same table also lists `BRIDGE_TRACKING`, `CARS`, `PUBLIC_ORIGIN` and `UPSTREAM_IDLE_SEC`. Those come from `wrangler.jsonc` on every deploy, so change them in the repo, not here.
+
+**Wrong place, same name.** Further down the Settings page, the **Builds** section has its own **Variables and secrets** box, between **API token** and **Deploy Hooks**. Secrets put there exist only while the site is being built; the running site never sees them. If `/rb2/check` reports a secret missing although you can see it in the dashboard, check it is in **Runtime variables and secrets**, not in **Builds**.
+
+(From a terminal instead: `npx wrangler secret put ACCESS_CLIENT_ID`, then `npx wrangler secret put ACCESS_CLIENT_SECRET`. Same result.)
 
 ## 7. Check it end to end
 
