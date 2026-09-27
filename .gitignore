@@ -5,3 +5,11 @@ dist/
 *.log
 # Lichtblick is built from source in CI; never commit its output or source.
 apps/advanced/.build/
+
+# CI: the car workspace fetched for drive_intent (see .github/workflows/ci.yml)
+.ci-car-ws/
+
+# Python (car/ros)
+__pycache__/
+*.pyc
+.pytest_cache/

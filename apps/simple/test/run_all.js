@@ -17,6 +17,7 @@ const path = require('path');
 
 const files = [
   path.join(__dirname, 'web_assets_test.js'),
+  path.join(__dirname, 'protocol_version_test.js'),
   ...fs.readdirSync(path.join(__dirname, 'browser'))
     .filter((name) => name.endsWith('_test.js'))
     .sort()

@@ -39,6 +39,36 @@ jobs:
       - name: Typecheck the Worker
         run: npm run typecheck
 
+  # The car-side ROS packages (car/ros/), without ROS: only the test files
+  # that import no rclpy/cv2, named one by one in run_ros_free_tests.sh.
+  # The rest (usb_cam_stream's, and test_dashboard_node_defaults.py) run
+  # under colcon on a car -- see car/README.md, "Running the tests".
+  car-python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'   # Ubuntu 24.04 / ROS 2 Jazzy's Python
+      - run: pip install pytest tornado psutil numpy pyyaml
+      # drive_intent is the car workspace's package, not this repo's; the
+      # intent tests use its schema as their oracle. Pinned to a commit so
+      # CI here cannot change under us.
+      - name: Fetch drive_intent from the car workspace (pinned)
+        run: |
+          git init -q .ci-car-ws
+          git -C .ci-car-ws remote add origin https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace.git
+          git -C .ci-car-ws sparse-checkout set src/drive_intent
+          git -C .ci-car-ws fetch -q --depth 1 --filter=blob:none origin dc40be1b169b21ffe839c03b3bf56e41fb349bf5
+          git -C .ci-car-ws checkout -q FETCH_HEAD
+      - name: Car-side Python tests (ROS-free files only)
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.ci-car-ws/src/drive_intent
+        run: car/ros/run_ros_free_tests.sh
+      - name: usb_cam_stream compiles (its tests need ROS; they run on the car)
+        run: python -m py_compile car/ros/usb_cam_stream/usb_cam_stream/*.py car/ros/usb_cam_stream/launch/*.py car/ros/web_dashboard/launch/*.py
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
