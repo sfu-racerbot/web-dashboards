@@ -1,7 +1,7 @@
 # SFU Racerbot web dashboards
 
 > **Who this is for:** anyone who wants to watch or tune one of the team's cars from a browser, set up a new car, or build the same thing for their own car. No robotics or Cloudflare experience assumed.
-> **Read first:** nothing. For the cars themselves, see the car workspace's [README](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace).
+> **Read first:** nothing. Everything a team needs is in this one repo: the site **and** the car-side ROS 2 packages. SFU Racerbot's own car workspace ([Racerbot-Car-2-Workspace](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace)) uses it as a git submodule.
 > **What's in it:** what the site does, how it fits together, how to set it up from scratch (car and Cloudflare), how to use it, and how to work on it with no car.
 
 Open **https://dashboard.sfuracerbot.ca**, log in with your team email, and pick a car. You see what the car sees — its map, its LiDAR, where it thinks it is, what it plans to do next, and its camera — live, from anywhere, in any browser. Nothing to install.
@@ -31,6 +31,7 @@ Open **https://dashboard.sfuracerbot.ca**, log in with your team email, and pick
 - **Tuning is per person, and times out.** Watching uses the shared relay, which refuses writes. Changing something opens *your own* control link, which closes after 5 idle minutes or when you switch tabs — and closing it disarms tuning.
 - **Nothing runs while nobody watches.** The relay drops the car connection 60 s after the last viewer leaves.
 - **Nothing to install on the car's network.** The car makes one outgoing connection to Cloudflare (a tunnel). No open ports, no port forwarding, no VPN.
+- **One repo for a whole team.** Clone it, build its two ROS 2 packages on your car, write one YAML file with your car's settings, add your car to the site's list — [car/README.md](car/README.md) walks through all of it.
 - **Deploys itself.** Cloudflare builds and publishes the site from this repo on every merge to `main`.
 - **Honest limits:** Cloudflare's free plan allows about **13 hours of watching a day** in total ([docs/costs.md](docs/costs.md)); "car online" is only known while someone watches; Advanced needs Chrome or Edge.
 
@@ -44,7 +45,7 @@ Open **https://dashboard.sfuracerbot.ca**, log in with your team email, and pick
 | Runs on | Any current browser, phone included | Chrome or Edge on a laptop |
 | Best for | Trackside, and everyone watching | Engineers digging into a problem |
 
-The simple dashboard's own manual — every panel, the colours, measuring, tuning — lives in the car workspace: [docs/web-dashboard.md](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/web-dashboard.md).
+The simple dashboard's own manual — every panel, the colours, measuring, tuning — is [car/docs/web-dashboard.md](car/docs/web-dashboard.md).
 
 ## How it fits together
 
@@ -77,7 +78,7 @@ In words:
 |---|---|---|
 | [`apps/`](apps/) | The three web pages: [`landing/`](apps/landing/), [`simple/`](apps/simple/) (plain HTML/JS/CSS, no build step), and [`advanced/`](apps/advanced/) (the Lichtblick version we build, and the team's default layout) | [apps/simple/SOURCE.md](apps/simple/SOURCE.md), [apps/advanced/README.md](apps/advanced/README.md) |
 | [`worker/`](worker/) | The site itself and the per-car relay, in TypeScript, with tests | [docs/decisions.md](docs/decisions.md) |
-| [`car/`](car/) | **Everything to install on a car**: the tunnel installer, foxglove_bridge settings, services that start at boot, and a check script | [car/README.md](car/README.md) |
+| [`car/`](car/) | **Everything to run on a car**: the ROS 2 packages `web_dashboard` (the dashboard's server, `remote_check`, and foxglove_bridge's settings) and `usb_cam_stream` (the camera) under [`car/ros/`](car/ros/), the bridge's boot service, the tunnel installer, a check script, and their docs | [car/README.md](car/README.md) |
 | [`tools/mock-car/`](tools/mock-car/) | A pretend car, for working on the site with no car | [tools/mock-car/README.md](tools/mock-car/README.md) |
 | [`docs/`](docs/) | Setup, decisions, costs, security | [All the docs](#all-the-docs) |
 | [`wrangler.jsonc`](wrangler.jsonc) | Cloudflare settings, including **the list of cars** (`CARS`) | |
@@ -89,12 +90,12 @@ Three parts, done once. **Do them in this order:** the Access rules go up before
 | Step | Where | Guide | Time |
 |---|---|---|---|
 | 1. Lock things down: the site's service token, Access on the car's hostnames and on the site | Cloudflare dashboard | [docs/cloudflare-setup.md](docs/cloudflare-setup.md), steps 1–3 | 15 min |
-| 2. Set up the car: foxglove_bridge, the tunnel, the three routes, start at boot | The car, and the Cloudflare dashboard | [car/README.md](car/README.md) | 30 min |
+| 2. Set up the car: build the two ROS packages, write the car's YAML, the tunnel, the three routes, the bridge at boot | The car, and the Cloudflare dashboard | [car/README.md](car/README.md) | 45 min |
 | 3. Connect this repo to Cloudflare, and give the site the service token | Cloudflare dashboard | [docs/cloudflare-setup.md](docs/cloudflare-setup.md), steps 5–7 | 15 min |
 
-After that there is nothing to run by hand. Merging to `main` deploys the site, and the car starts its three servers and the tunnel when it boots.
+After that, merging to `main` deploys the site, and the car starts the tunnel and foxglove_bridge when it boots. **The dashboard's server and the camera are started by hand** on the car when you want them — nothing else runs at boot.
 
-**Building this for your own car?** The same three steps work with your own domain and your own ROS 2 Jazzy car. Your car needs `dashboard_node` and `usb_cam_stream` from the [car workspace](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace) (`src/web_dashboard`, `src/usb_cam_stream`), plus what is in [`car/`](car/). Then replace `sfuracerbot.ca` in `wrangler.jsonc` (the route, `PUBLIC_ORIGIN` and the `CARS` hostnames) with your domain.
+**Building this for your own car?** The same three steps work with your own domain and your own ROS 2 Jazzy car: everything the car needs is in [`car/`](car/), and [car/README.md](car/README.md) is the complete guide. Then replace `sfuracerbot.ca` in `wrangler.jsonc` (the route, `PUBLIC_ORIGIN` and the `CARS` hostnames) with your domain.
 
 **Adding a car** is one entry in `CARS` in `wrangler.jsonc`, plus that car's tunnel and Access setup: [how](docs/cloudflare-setup.md#adding-a-car).
 
@@ -139,13 +140,13 @@ npm run dev
 
 Advanced needs Lichtblick built once first (`apps/advanced/build.sh`, a few minutes). The mock has no foxglove_bridge, so Lichtblick will say it cannot connect.
 
-**Tests.** `npm test` runs all of them: the simple dashboard's 9 test files, the site's unit tests, the mock car's tests and a TypeScript check. **Working when:** every part passes. GitHub runs the same on every push, plus a full Lichtblick build and a check against Cloudflare's file-size limits.
+**Tests.** `npm test` runs the site's: the simple dashboard's 10 test files (one checks the page and the car agree on the protocol version), the Worker's unit tests, the mock car's tests and a TypeScript check. **Working when:** every part passes. GitHub runs the same on every push, plus the car-side Python tests that need no ROS (`car/ros/run_ros_free_tests.sh`), a full Lichtblick build and a check against Cloudflare's file-size limits. Which runner runs which test: [car/README.md](car/README.md#running-the-tests). Rules for writing tests: [TEST_QUALITY_STANDARDS.md](TEST_QUALITY_STANDARDS.md).
 
 ## Common questions
 
 **Do I need to put secrets in GitHub?** No. Cloudflare builds and deploys the site from this repo itself, so GitHub holds no secrets. The only secrets are the site's service token (`ACCESS_CLIENT_ID`, `ACCESS_CLIENT_SECRET`), and they live in the Worker's settings in the Cloudflare dashboard ([step 6](docs/cloudflare-setup.md)). The car's tunnel token lives only on the car.
 
-**Can I still open the dashboard directly on the car's WiFi?** Yes, at `http://<car-ip>:8080`, as before, with no login. To force everyone through the site, see [car/README.md](car/README.md#safety).
+**Can I still open the dashboard directly on the car's WiFi?** No: the car serves no pages any more, only the WebSocket the site uses. The camera still answers at `http://<car-ip>:9090/` with no login; to force everyone through the site, see [car/README.md](car/README.md#safety).
 
 **What does it cost?** Nothing on Cloudflare's free plan, up to about 13 hours of watching a day. Workers Paid ($5 a month) covers about 130 hours a month, then under a cent an hour. See [docs/costs.md](docs/costs.md).
 
@@ -155,14 +156,18 @@ Advanced needs Lichtblick built once first (`apps/advanced/build.sh`, a few minu
 
 | Doc | Read it when |
 |---|---|
-| [car/README.md](car/README.md) | Setting up a car |
+| [car/README.md](car/README.md) | Setting up a car: building the ROS packages, your car's YAML, the tunnel, the bridge at boot, checking every hop, running the tests |
+| [car/docs/web-dashboard.md](car/docs/web-dashboard.md) | Using the Simple dashboard, and how its car side works: every panel, tuning and the `live_tunable_spec` contract, the wire contract |
+| [car/docs/foxglove-bridge.md](car/docs/foxglove-bridge.md) | What the Advanced dashboard can and cannot do to a car, and why nothing can be published |
+| [car/docs/usb-camera-livestream.md](car/docs/usb-camera-livestream.md) | The camera stream |
+| [TEST_QUALITY_STANDARDS.md](TEST_QUALITY_STANDARDS.md) | Writing or changing any test in this repo |
 | [docs/cloudflare-setup.md](docs/cloudflare-setup.md) | Setting up Cloudflare, connecting the repo, adding a car, giving or removing access |
 | [docs/security.md](docs/security.md) | You want to know who can reach what, and why the car can trust the site |
 | [docs/costs.md](docs/costs.md) | You want to know what it costs and how many hours the free plan allows |
 | [docs/decisions.md](docs/decisions.md) | You want to know why something is built the way it is, and what was checked |
 | [docs/follow-ups.md](docs/follow-ups.md) | You are looking for the next thing to work on |
 | [apps/advanced/README.md](apps/advanced/README.md) | Upgrading Lichtblick or changing its default layout |
-| [apps/simple/SOURCE.md](apps/simple/SOURCE.md) | Comparing the simple dashboard with its car-repo ancestor |
+| [apps/simple/SOURCE.md](apps/simple/SOURCE.md) | Comparing the simple dashboard with its car-repo ancestor, and where each of the car repo's tests went |
 | [tools/mock-car/README.md](tools/mock-car/README.md) | Working without a car |
 
 ## License

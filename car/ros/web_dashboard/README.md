@@ -1,20 +1,20 @@
 # `web_dashboard`
 
-> **Who this is for:** someone reading or changing this package's code.
-> **Read first:** [docs/web-dashboard.md](../../docs/web-dashboard.md) for what the dashboard shows and how to run it.
-> **What's in it:** the server, the wire protocol, and the browser side. Subscribes only — but note the live tuning panel's `set_parameters` path.
+> **Who this is for:** someone reading or changing this package's code, or the browser code in `apps/simple` that talks to it.
+> **Read first:** [car/docs/web-dashboard.md](../../docs/web-dashboard.md) for what the dashboard shows and how to run it, and [car/README.md](../../README.md) to set a car up.
+> **What's in it:** the car-side server, the wire protocol, and — because the two are written against each other — the browser side in [`apps/simple`](../../../apps/simple/). Subscribes only — but note the live tuning panel's `set_parameters` path.
 
 Live browser dashboard: streams the SLAM/localization map, proximity-colored
 LIDAR, pose, measured speed, selected steering command, LB state, and a shared
-stopwatch to any web browser over a WebSocket. This file documents the code in
+stopwatch to the site over a WebSocket. This file documents the code in
 detail; for the workflow (what you'll see at each stage, quick start,
-security note) see [docs/web-dashboard.md](../../docs/web-dashboard.md).
+security note) see [car/docs/web-dashboard.md](../../docs/web-dashboard.md).
 
 **Not an autonomy node** — it publishes to no ROS topic, so none of
-[architecture.md](../../docs/architecture.md)'s safety model or the
-[mandatory LB-deadman policy](../../docs/architecture.md#workspace-policy-the-lb-deadman-button-is-mandatory-for-every-node-that-can-move-the-car)
+SFU Racerbot's [architecture.md](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/architecture.md) safety model or the
+[mandatory LB-deadman policy](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/architecture.md#workspace-policy-the-lb-deadman-button-is-mandatory-for-every-node-that-can-move-the-car)
 apply to it; both are scoped to nodes that can move the car (see
-[writing-your-own-node.md](../../docs/writing-your-own-node.md#the-interface-contract)).
+[writing-your-own-node.md](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/writing-your-own-node.md#the-interface-contract)).
 
 It does have exactly one write path: [live parameter tuning](#live-parameter-tuning-tuningpy)
 calls the driving nodes' `set_parameters` service. That changes how a car
@@ -23,13 +23,18 @@ the car, or relax the deadman. See
 [docs/web-dashboard.md](../../docs/web-dashboard.md#live-parameter-tuning)
 for the user-facing account and `enable_tuning: false` to remove it.
 
-> **`web/` is deprecated -- a frozen fallback.** The dashboard's frontend now
-> lives in **sfu-racerbot/web-dashboards**, served at
-> https://dashboard.sfuracerbot.ca. Make new frontend changes there, not in
-> `web/`. This copy keeps working (`serve_static: true`) until the team
-> confirms the new site covers everything, and its tests stay until that repo
-> has ported them. What this package serves the remote site is described in
-> [docs/web-dashboard.md](../../docs/web-dashboard.md#remote-access-through-dashboardsfuracerbotca).
+> **This node serves no pages.** The frontend is this repo's
+> [`apps/simple`](../../../apps/simple/), served by the site; the node
+> answers `/ws` and 404s everything else. (It used to ship a copy of the
+> page in `web/`; that copy and its tests were removed when the package
+> moved here, all of the tests already ported to `apps/simple`.) What the
+> node serves the site is described in
+> [car/docs/web-dashboard.md](../../docs/web-dashboard.md#remote-access-through-the-site).
+>
+> **`drive_intent` is optional.** Its schema belongs to the car workspace
+> that publishes `/drive_intent`. Without it installed, nothing subscribes
+> to that topic, the intent panel stays empty, and the node says so once at
+> startup ([`web_dashboard/intent.py`](web_dashboard/intent.py)).
 
 ## Files
 
@@ -46,18 +51,20 @@ for the user-facing account and `enable_tuning: false` to remove it.
 | [`web_dashboard/origins.py`](web_dashboard/origins.py) | Which web pages may open the WebSocket: same-origin, or an exact match in `allowed_origins`. No ROS/Tornado imports (see [`test/test_origins.py`](test/test_origins.py)). |
 | [`web_dashboard/roles.py`](web_dashboard/roles.py) | The remote site's connection roles (`relay`, `control`, none): which browser->car messages are writes, who may send them, what each role receives, and the log-safe user name. No ROS/Tornado imports (see [`test/test_roles.py`](test/test_roles.py)). |
 | [`web_dashboard/remote_check.py`](web_dashboard/remote_check.py) | `ros2 run web_dashboard remote_check`: tests each hop between dashboard.sfuracerbot.ca and this car from the car's side, and prints a fix per failure. Read-only. Its verdict logic is tested in [`test/test_remote_check.py`](test/test_remote_check.py). |
-| [`web_dashboard/server.py`](web_dashboard/server.py) | The Tornado WebSocket handler, the page routes (`serve_static`), and the fan-out loop. Tornado but no `rclpy`, so [`test/test_server.py`](test/test_server.py) runs it on a real socket against a fake node. |
+| [`web_dashboard/server.py`](web_dashboard/server.py) | The Tornado WebSocket handler, the 404 for every page, and the fan-out loop. Tornado but no `rclpy`, so [`test/test_server.py`](test/test_server.py) runs it on a real socket against a fake node. |
 | [`web_dashboard/dashboard_node.py`](web_dashboard/dashboard_node.py) | The ROS2 node: subscribes to map/scan/pose/command/odom/joy, starts the [Tornado](https://www.tornadoweb.org/) server from `server.py`, and bridges its two threads. |
-| [`web/index.html`](web/index.html), [`web/dashboard.js`](web/dashboard.js), [`web/style.css`](web/style.css) | The main browser dashboard — plain HTML/JS/CSS, no build step. `measure.js` loads *before* `dashboard.js`; `panels.js` loads *after*. |
-| [`web/measure.js`](web/measure.js) | The map measuring tool's arithmetic and every decision it makes: segment lengths, the total, distance formatting, tap-versus-drag, and label placement. No DOM, no canvas, no WebSocket, so it loads under plain node (see [`test/browser/measure_test.js`](test/browser/measure_test.js)). |
-| [`web/panels.js`](web/panels.js) | The window manager: popping a section out of the info panel, dragging, magnetic snapping, 8-way resizing, and the saved layout. Touches no telemetry — it only moves boxes. Its geometry is tested under node (see [`test/browser/panels_test.js`](test/browser/panels_test.js)). |
-| [`web/camera.html`](web/camera.html), [`web/camera.js`](web/camera.js), [`web/camera.css`](web/camera.css) | Full-window camera recording view with clock and telemetry overlays. |
-| [`config/web_dashboard.yaml`](config/web_dashboard.yaml) | Every parameter, loaded at launch. |
-| [`launch/web_dashboard_launch.py`](launch/web_dashboard_launch.py) | Starts the node with the YAML above. |
+| [`web_dashboard/intent.py`](web_dashboard/intent.py) | Optional `drive_intent` support: imports its schema if installed, and the one startup line either way. No ROS imports (see [`test/test_intent_optional.py`](test/test_intent_optional.py)). |
+| [`config/foxglove_bridge.yaml`](config/foxglove_bridge.yaml), [`launch/foxglove_bridge_launch.py`](launch/foxglove_bridge_launch.py) | foxglove_bridge for the site's Advanced dashboard: loopback only, and **browsers can publish to no topic** ([`test/test_foxglove_bridge_config.py`](test/test_foxglove_bridge_config.py) holds that). Started at boot by `car/systemd/foxglove-bridge.service`. See [car/docs/foxglove-bridge.md](../../docs/foxglove-bridge.md). |
+| **In `apps/simple`:** [`web/index.html`](../../../apps/simple/web/index.html), [`web/dashboard.js`](../../../apps/simple/web/dashboard.js), [`web/style.css`](../../../apps/simple/web/style.css) | The main browser dashboard — plain HTML/JS/CSS, no build step. `measure.js` loads *before* `dashboard.js`; `panels.js` loads *after*. |
+| [`web/measure.js`](../../../apps/simple/web/measure.js) | The map measuring tool's arithmetic and every decision it makes: segment lengths, the total, distance formatting, tap-versus-drag, and label placement. No DOM, no canvas, no WebSocket, so it loads under plain node (see [`test/browser/measure_test.js`](../../../apps/simple/test/browser/measure_test.js)). |
+| [`web/panels.js`](../../../apps/simple/web/panels.js) | The window manager: popping a section out of the info panel, dragging, magnetic snapping, 8-way resizing, and the saved layout. Touches no telemetry — it only moves boxes. Its geometry is tested under node (see [`test/browser/panels_test.js`](../../../apps/simple/test/browser/panels_test.js)). |
+| [`web/camera.html`](../../../apps/simple/web/camera.html), [`web/camera.js`](../../../apps/simple/web/camera.js), [`web/camera.css`](../../../apps/simple/web/camera.css) | Full-window camera recording view with clock and telemetry overlays. |
+| [`config/web_dashboard.yaml`](config/web_dashboard.yaml) | Every parameter, with **generic** defaults: no car's node names, paths or geometry. |
+| [`launch/web_dashboard_launch.py`](launch/web_dashboard_launch.py) | Starts the node with the YAML above, plus `car_config:=<your car's YAML>` on top. |
 
 ## Interface
 
-- **Subscribes:** map (`/map`), scan (`/scan`), pose (`/pf/viz/inferred_pose` *and* `/slam_pose`), selected command (`/ackermann_cmd`), measured odometry (`/odom`), joystick state (`/joy`), and drive intent (`/drive_intent`). Every subscription is display/timer input only.
+- **Subscribes:** map (`/map`), scan (`/scan`), pose (`/pf/viz/inferred_pose` *and* `/slam_pose`), selected command (`/ackermann_cmd`), measured odometry (`/odom`), joystick state (`/joy`), and drive intent (`/drive_intent`, only when the `drive_intent` package is installed). Every subscription is display/timer input only.
 - Also samples CPU%/mem%/CPU temp/WiFi signal/uptime on a timer (`psutil` + `/sys/class/thermal` + `/proc/net/wireless`).
 - **Publishes:** nothing, to any topic. Browser input can enable/reset the dashboard-local stopwatch (which never leaves this process) and — once armed — change live-tunable parameters on the nodes in `tuning_nodes`.
 - **Calls (services):** `/<node>/get_parameters` and `/<node>/set_parameters` for each node in `tuning_nodes`; and, with `enable_slam_reset`, `/slam_toolbox/reset` — refused while any `proccontrol.DRIVING_CONTROLLERS` process is running. Nothing else.
@@ -126,7 +133,7 @@ payload), laid out to match a JavaScript `TypedArray` byte-for-byte:
 | `speed` | measured odometry `speed` | *(none)* |
 | `stopwatch` | `elapsed_s`, enabled/running flags, LB/freshness flags | *(none)* |
 | `stats` | `cpu_percent`, `mem_percent`, `cpu_temp_c` (nullable), `uptime_s`, `wifi_dbm` (nullable) | *(none)* |
-| `intent` | `intent`: one `/drive_intent` payload, forwarded after validation — see [docs/drive-intent.md](../../docs/drive-intent.md) | *(none)* |
+| `intent` | `intent`: one `/drive_intent` payload, forwarded after validation — see [docs/drive-intent.md](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/drive-intent.md) | *(none)* |
 | `write_refused` | `request`, `action`, `detail` — a write this connection may not send (today: any write on the remote site's read-only `relay` connection). Sent only to that connection | *(none)* |
 
 **The version rule.** `protocol.PROTOCOL_VERSION` (currently `1`) goes in
@@ -230,7 +237,9 @@ best-effort subscriber can match either a best-effort *or* reliable
 publisher, which is the broadly-compatible choice when you don't control
 the publisher's exact QoS.
 
-## The browser side (`web/dashboard.js`)
+## The browser side (`apps/simple/web/dashboard.js`)
+
+This section and the next few describe code in [`apps/simple`](../../../apps/simple/), kept here beside the server they are written against. Paths below (`web/…`, `test/browser/…`) are relative to `apps/simple/`.
 
 One plain file, no build step, no framework. Renders in one of two modes,
 chosen automatically based on what data has arrived:
@@ -441,7 +450,7 @@ panel — where the section header is hidden and the body starts at the top
 — it ran straight down the middle of the stopwatch digits. It read as a
 rendering fault, because it was one.
 
-### Detachable panels (`web/panels.js`)
+### Detachable panels (`apps/simple/web/panels.js`)
 
 Any section can be popped out of the info panel into a floating panel,
 moved, snapped and resized; the LB stopwatch starts that way, in the
@@ -454,7 +463,7 @@ DOM node, same ids, same children — so `dashboard.js` goes on writing to
 lives somewhere else. `panels.js` never reads telemetry and never touches
 the WebSocket; it only moves boxes. It loads *after* `dashboard.js`, which
 has by then resolved its ~40 element references (those survive
-re-parenting), and `test_web_assets.py` pins that ordering.
+re-parenting), and `apps/simple/test/web_assets_test.js` pins that ordering.
 
 Three things are easy to get wrong here and are worth knowing:
 
@@ -483,7 +492,7 @@ and link state, one scroll region (`#panels`) holding the `feeds`,
 `intent`, `vehicle`, `LB stopwatch`, `system` and `live tuning` sections,
 and a pinned footer (`#mode-banner` + `#help` + `#credit`). Those three parts, and the
 fact that `#overlay` is *not* `pointer-events: none`, are pinned by
-[`test/test_web_assets.py`](test/test_web_assets.py) — read that file
+[`apps/simple/test/web_assets_test.js`](../../../apps/simple/test/web_assets_test.js) — read that file
 before restructuring the sidebar. WiFi gets a small 4-bar icon
 (`updateWifiBars()`) alongside the raw dBm reading, using the same
 dBm-band thresholds phones use for their own signal icons.
@@ -545,8 +554,8 @@ button and cursor hide after `CONTROLS_IDLE_MS` of no input
 | `stopwatch_update_rate_hz` | `4.0` | Shared stopwatch broadcast rate. Low because the browser runs the clock between updates; this only corrects drift and carries LB press/release |
 | `host` | `0.0.0.0` | Listen on every interface, IPv4 **and** IPv6 (see [`netbind.py`](web_dashboard/netbind.py); a real address such as `127.0.0.1` restricts it to that one) — plus the security note in [docs/web-dashboard.md](../../docs/web-dashboard.md#security-note) |
 | `port` | `8080` | Web server port |
-| `allowed_origins` | `["https://dashboard.sfuracerbot.ca"]` | Other sites allowed to open the WebSocket, exact `scheme://host[:port]`. Same-origin is always allowed. Declared by type with no default: an empty `[]` default would be inferred as a byte array by rclpy and reject the YAML's strings |
-| `serve_static` | `true` | `false`: only `/ws`, and a 404 for every page |
+| `allowed_origins` | unset | The site allowed to open the WebSocket, exact `scheme://host[:port]`; set it in the car YAML (car 2: `["https://dashboard.sfuracerbot.ca"]`). Same-origin is always allowed. Declared by type with no default: an empty `[]` default would be inferred as a byte array by rclpy and reject the YAML's strings |
+| `serve_static` | `false` | Ignored (warns if `true`): the node serves no pages |
 | `scan_broadcast_rate_hz` | `10.0` | Throttle for `/scan` broadcasts (input itself runs ~40Hz) |
 | `telemetry_rate_hz` | `20.0` | Pose/command/speed/intent/stopwatch/stats are collected and sent as ONE frame at this rate instead of one frame each |
 | `map_compression` | `true` | Deflate map keyframes and patches |
@@ -555,10 +564,10 @@ button and cursor hide after `CONTROLS_IDLE_MS` of no input
 | `scan_encoding` | `u16mm` | `u16mm` (uint16 millimetres, half the bytes) or `f32` (the original one float per beam) |
 | `scan_decimation` | `1` | Send only every Nth beam. `1` = every beam |
 | `stats_interval_sec` | `1.0` | How often CPU%/mem%/temp/WiFi/uptime are sampled and broadcast |
-| `laser_offset_x` / `laser_offset_y` | `0.26` / `0.0` | Measured LIDAR mounting offset from `base_link` (matches [hardware-reference.md](../../docs/hardware-reference.md)) |
+| `laser_offset_x` / `laser_offset_y` | `0.0` / `0.0` | The car's LIDAR mounting offset from `base_link`; set it in the car YAML (car 2: `0.26`, its [hardware-reference.md](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/hardware-reference.md)) |
 | `enable_tuning` | `true` | Whether live tuning exists at all; `false` never creates the service clients |
-| `tuning_nodes` | `[pure_pursuit_node, gap_follow_node]` | The only nodes ever probed or written to |
-| `tuning_config_files` | see YAML | Parallel to `tuning_nodes`: `<package>/<path>` that "save" writes back to |
+| `tuning_nodes` | unset | The only nodes ever probed or written to (car 2: `[pure_pursuit_node, gap_follow_node]`) |
+| `tuning_config_files` | unset | Parallel to `tuning_nodes`: `<package>/<path>` that "save" writes back to |
 | `tuning_allow_save` | `true` | `false` allows live tuning but forbids writing to disk |
 | `tuning_refresh_sec` / `tuning_request_rate_hz` / `tuning_service_timeout_sec` | `2.0` / `20.0` / `3.0` | Value refresh period, how fast a released slider reaches the car, and when to give up on a service call |
 
@@ -663,7 +672,7 @@ inside a subscription callback — see
 stopped arriving and zeroes the output.
 
 So the VESC (the motor controller,
-[glossary](../../docs/glossary.md#vesc)) holds its last command until the
+[glossary](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/glossary.md#vesc)) holds its last command until the
 VESC *firmware's* own motor timeout releases it.
 
 The stop is still releasing LB, which actively publishes zeroes at
@@ -741,7 +750,7 @@ serving telemetry. Blocking it to wait for a `SIGINT` to land would
 freeze the map, the scan and the pose for every connected browser — while
 the car is moving.
 
-## Measuring on the map (`web/measure.js`)
+## Measuring on the map (`apps/simple/web/measure.js`)
 
 `measure.js` holds the arithmetic and every decision; `dashboard.js` holds the pointer events and the drawing. Nothing in `measure.js` touches the DOM, so `test/browser/measure_test.js` loads the real file under plain node.
 
@@ -853,18 +862,19 @@ The call stalls `slam_toolbox`'s own executor while it runs, so `done=False` is 
 
 | Symptom | Likely cause |
 |---|---|
-| Page loads but says "disconnected — retrying..." forever | `dashboard_node` isn't running, or a firewall is blocking the port; check the node's own terminal output |
+| The site says `CAR OFFLINE` | `dashboard_node` isn't running, the site isn't in `allowed_origins`, or a hop between the site and the car is broken. Run `ros2 run web_dashboard remote_check --site https://<your site> --car <car id>` on the car; it names the hop and the fix |
+| `http://<car-ip>:8080/` shows a 404 | Nothing is wrong: this node serves no pages. Open the site |
 | "no map yet" never clears | Nothing has published `/map` yet (no SLAM/localization running), or a durability/QoS mismatch — check `ros2 topic info /map` |
-| Map shows but scan/car never appear | No pose yet — seed localization with RViz's "2D Pose Estimate" (see [operations.md](../../docs/operations.md)) |
+| Map shows but scan/car never appear | No pose yet — seed localization with RViz's "2D Pose Estimate" (see [operations.md](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/operations.md)) |
 | A feed's status dot is red | That feed has gone stale (>1s since the last update, >3s for `stats`) — check the corresponding ROS topic with `ros2 topic hz`, or the node's own terminal output for `stats`/`drive` |
 | `stats` never shows real numbers | The running `dashboard_node` process predates a rebuild — Python files aren't hot-reloaded, so restart `ros2 launch web_dashboard web_dashboard_launch.py` after any `colcon build` that touches this package |
 | `temp`/`wifi` show `n/a` | No readable `cpu-thermal` thermal zone / no wireless interface on this machine (e.g. developing on a laptop docked to Ethernet) — expected, not a bug |
-| Camera inset shows "camera offline" | `usb_cam_stream` isn't running, or is on a different port than the hardcoded `CAMERA_PORT` (`9090`) in `dashboard.js` |
+| Camera inset shows "camera offline" | `usb_cam_stream` isn't running (it is started by hand), or the car's `<car>-cam-origin` tunnel route doesn't point at its port (`9090`) |
 | The processes panel is missing | `enable_process_control: false`, or a running `dashboard_node` that predates this feature — restart it after `colcon build` |
 | A driving node you're running isn't listed | Its process name isn't in `killable_nodes`. Check what it really is with `ps -eo pid,args \| grep <name>`; a node started with `-r __node:=<other>` is matched on the remapped name |
 | A stop says "refused — in the actuation path" | Working as intended: that process is in `proccontrol.PROTECTED` and no config makes it stoppable. See [the protected set](#the-protected-set-is-the-whole-safety-argument) |
 | A stop reports "survived SIGINT, SIGTERM, SIGKILL" | The process is blocked in an uninterruptible kernel wait, usually on a USB/serial device that stopped responding. Nothing in userspace can end it; reboot |
-| Reachable at the car's `100.x.x.x` address but not at its Tailscale hostname | An IPv4-only listener: MagicDNS publishes the car's IPv6 address too and browsers often try it first. `ss -tlnp \| grep 8080` should show *two* lines (IPv4 and IPv6); one line means a build predating [`netbind.py`](web_dashboard/netbind.py) — rebuild and relaunch. If both are listening, check `tailscale status` and that `tailscale debug prefs` reports `"ShieldsUp": false` |
+| Reachable at the car's IPv4 address but not over IPv6 (a Tailscale hostname, say) | An IPv4-only listener. `ss -tlnp \| grep 8080` should show *two* lines (IPv4 and IPv6) with the default `host`; one line means a build predating [`netbind.py`](web_dashboard/netbind.py) — rebuild and relaunch |
 | A saved run is not listed | It is not under a directory in `map_roots`, or its name has a character outside `[A-Za-z0-9._-]`. Manually saved maps land in whatever directory you ran `map_saver_cli` from and are never listed. |
 | `delete refused -- this run changed` | The digest guard: the directory changed after your page listed it. Refresh and look again. |
 | `delete refused -- ... is using this run` | A `map_server` or controller has that directory open. Stop it first; deleting under it hangs `particle_filter`. |

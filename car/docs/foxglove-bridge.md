@@ -1,0 +1,170 @@
+# foxglove_bridge: the car's ROS graph in Lichtblick
+
+> **Who this is for:** anyone who wants to look at a car's topics, parameters and services from a browser through the site's Advanced dashboard (for SFU Racerbot, dashboard.sfuracerbot.ca), or who is about to change what the bridge allows.
+> **Read first:** [concepts.md](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/concepts.md) for what a [node](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/glossary.md#node), [topic](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/glossary.md#topic) and parameter are, and [architecture.md](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/architecture.md#workspace-policy-the-lb-deadman-button-is-mandatory-for-every-node-that-can-move-the-car) for the LB deadman rule.
+> **You'll be able to:** start the bridge, say exactly what a Lichtblick user can and cannot do to the car, and explain why nothing can be published through it.
+> **Time:** about 15 minutes.
+
+**foxglove_bridge** is a ready-made ROS2 program that lets a web app see the car's ROS graph over one WebSocket. The web app here is **Lichtblick**, an open-source robotics viewer (a fork of Foxglove Studio). Through the bridge it can plot any topic, draw the map and scan in 3D, read and change parameters, and call services, all from a browser.
+
+It is installed from apt, not written by us. Its settings, launch file and safety test are in this repo's `web_dashboard` package; this page covers how a car runs it and what it lets people do. Examples are SFU Racerbot car 2's.
+
+---
+
+## Highlights
+
+- **The whole graph, no ROS on the viewing machine.** Every topic, every node's parameters and every service, in a browser tab, through the site.
+- **Loopback only.** It listens on `127.0.0.1:8765`. It cannot be reached on the LAN or Tailscale at all. The only way in from off the car is the Cloudflare Tunnel, which sits behind Cloudflare Access.
+- **Nothing can be published through it.** Client publishing is switched off entirely, so `/drive`, `/teleop`, `/ackermann_cmd`, `/joy` and `/commands/*` are out of reach. That was measured, not assumed — see [why](#why-clients-cannot-publish-anything). A test holds that line.
+- **No raw camera frames.** Raw images would cost about 7 MB/s per viewer through the tunnel, so only the compressed versions are offered.
+- **Every change it makes is recorded.** Parameter changes land on `/parameter_events`, which [race_diagnostics](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/run-diagnostics.md) now bags by default.
+
+**Honest limits:** it is much less fenced-in than the [web dashboard](web-dashboard.md). A Lichtblick user can change any parameter on any node and call any service. See [What it exposes](#what-it-exposes). The config was checked against foxglove_bridge 3.5.0 only.
+
+### Why it exists
+
+The web dashboard shows what the team decided to show. Lichtblick shows everything, which is what you want when the question is "what is on `/diagnostics` right now" or "what did `particle_filter`'s parameters end up as". Before this, answering those needed a laptop with ROS installed on the car's network.
+
+---
+
+## Before you start
+
+- [ ] foxglove_bridge is installed: `ls /opt/ros/jazzy/share/foxglove_bridge` lists files. If it doesn't, install it (needs sudo, ask whoever administers the car):
+
+  ```bash
+  sudo apt install ros-jazzy-foxglove-bridge
+  ```
+
+- [ ] For camera images in Lichtblick: the compressed image transports are installed (`ls /opt/ros/jazzy/share/compressed_image_transport`). Without them the camera publishes only raw frames, which the bridge deliberately hides. The [MJPEG camera stream](usb-camera-livestream.md) is unaffected either way.
+
+  ```bash
+  sudo apt install ros-jazzy-image-transport-plugins
+  ```
+
+- [ ] The workspace is built with this repo's `web_dashboard` in it, so the launch file is installed: `colcon build --symlink-install --packages-select web_dashboard` ([car/README.md](../README.md)).
+
+---
+
+## Start it
+
+It is support tooling, like the web dashboard. It starts nothing that moves the car, so there is no bringup order and no wheels-off precaution for *starting* it.
+
+Normally you don't start it by hand at all: it is the one service that starts at boot ([below](#running-it-at-boot)). By hand, for a test, with the service stopped first (`sudo systemctl stop foxglove-bridge`) so the two don't fight over port 8765:
+
+**Terminal 1, on the car, from your workspace** — the bridge. Leave it running.
+
+```bash
+source /opt/ros/jazzy/setup.bash && source ~/racerbot-ws/install/setup.bash
+ros2 launch web_dashboard foxglove_bridge_launch.py
+```
+
+**Working when:** the log says `Server listening on port 8765`, and a second terminal shows it listening on loopback only:
+
+```bash
+ss -tlnp | grep 8765
+```
+
+That should print one line containing `127.0.0.1:8765`. `0.0.0.0:8765` or `*:8765` means it is using some other parameter file — stop it and check.
+
+**If it doesn't:** `package 'foxglove_bridge' not found` means it isn't installed (see [Before you start](#before-you-start)).
+
+Then open the site, sign in, and pick **Advanced** for the car. It connects through the car's `<car>-bridge-origin` hostname (car 2: `rb2-bridge-origin.sfuracerbot.ca`).
+
+### Running it at boot
+
+`car/systemd/foxglove-bridge.service` runs the same launch at boot, as the user who owns the workspace, through `car/systemd/foxglove-bridge.sh`. That wrapper sources `/opt/ros/jazzy` and the workspace's `install/` first, because systemd starts services with an almost empty environment. It is the **only** service this repo installs.
+
+The unit is a template. `install.sh` fills in the user, the workspace and the path of the `car/systemd/` folder it runs from, installs it, enables it, and restarts it. So run it from the checkout you will keep — for SFU Racerbot car 2, the `src/web_dashboards` submodule.
+
+**Terminal 1, on the car** (needs sudo):
+
+```bash
+sudo ~/racerbot-ws/src/web_dashboards/car/systemd/install.sh <user> /home/<user>/racerbot-ws
+```
+
+**Working when:** it prints `active (running)`, and `journalctl -u foxglove-bridge -n 20` shows `Server listening on port 8765`.
+
+To stop it for good: `sudo systemctl disable --now foxglove-bridge.service`.
+
+> **The ROS domain must match the stack's.** SFU Racerbot car 2 runs with `ROS_DOMAIN_ID` and `RMW_IMPLEMENTATION` both unset (domain 0, Fast DDS). The wrapper leaves them unset too. A bridge on a different domain starts fine and shows an empty topic list — nothing tells you why. If the team ever sets either variable for the stack, put the same line in `/etc/default/foxglove-bridge`, which the service reads.
+
+---
+
+## What it exposes
+
+Everything is set in `car/ros/web_dashboard/config/foxglove_bridge.yaml`, which explains each line.
+
+| A Lichtblick user can… | Scope |
+|---|---|
+| Subscribe to topics | All of them, **except** raw camera and raw depth images (see below) |
+| Publish to topics | **Nothing** — client publishing is off |
+| Read parameters | Every node |
+| **Change** parameters | **Every node** |
+| Call services | **Every service** |
+| See the connection graph | Which node publishes and subscribes what |
+
+Read the bold rows twice. They are much broader than the web dashboard's [tuning panel](web-dashboard.md#live-parameter-tuning), which only reaches the nodes named in `tuning_nodes`, only the parameters those nodes advertise as tunable, within bounds each node enforces, behind a per-tab arm.
+
+Through the bridge, someone can change a parameter on `ackermann_mux`, the VESC driver, `slam_toolbox`, or anything else, and call `/slam_toolbox/reset` while a controller is driving — which the dashboard refuses. What still protects the car:
+
+- SFU Racerbot car 2's driving nodes refuse `enable_deadman: false` at runtime, from any client, so the LB deadman cannot be switched off this way. **If your driving nodes have a deadman, make them refuse it at runtime too** — through the bridge, any parameter a node accepts is one click away.
+- Nobody can *publish* a drive command (next section).
+- Only people Cloudflare Access lets through the site can reach it at all.
+
+So treat access to Lichtblick as "may reconfigure the running car", and keep the Access list to people you'd trust at the laptop.
+
+### Why clients cannot publish anything
+
+**The bridge must never be able to publish `/drive`, `/teleop`, `/ackermann_cmd`, `/joy` or `/commands/motor|servo/*`.**
+
+A message published straight onto `/drive` goes to `ackermann_mux`, which forwards it to the motors. It never passes through a driving node. And the driving nodes are where the LB deadman lives: each one checks that someone is holding LB before it publishes. A raw `/drive` from a browser skips all of that.
+
+The result would be a car driven from a web page with no dead-man switch — exactly the state the [workspace policy](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/architecture.md#workspace-policy-the-lb-deadman-button-is-mandatory-for-every-node-that-can-move-the-car) exists to make impossible. Publishing `/joy` is the same hazard by a different route: it would forge the LB button itself.
+
+**The plan was to allow only `/initialpose`, and it does not work on this bridge version.** foxglove_bridge has a `client_topic_whitelist` setting for exactly this, and the config sets it to `/initialpose` only. On 2026-09-27 it was tested on a copy of the bridge running on its own isolated ROS domain, with nothing connected to the car:
+
+- With client publishing on, a client published a message to `/drive` and it **arrived** — the whitelist is read, reported back correctly, and then ignored.
+- With client publishing off (the `clientPublish` capability removed), the bridge refused with `Server does not support clientPublish capability`, and nothing arrived.
+
+So publishing is off entirely. The cost is that Lichtblick's "2D Pose Estimate" cannot seed [particle_filter](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/glossary.md#localization); use RViz on the car's network for that. The whitelist stays in the config as a second layer for a future version that enforces it — **it is not what protects the car today.**
+
+`car/ros/web_dashboard/test/test_foxglove_bridge_config.py` fails if `clientPublish` is ever added back to `capabilities` (in any capitalisation). It runs in this repo's CI and under colcon on the car.
+
+> **After any foxglove_bridge upgrade, re-run that isolated test before even considering turning client publishing back on.** A config file that says `/initialpose only` is not evidence; a message that failed to arrive is.
+
+### Why no raw images
+
+One raw 424×240 color frame is about 300 kB, and the camera sends 15 a second; depth is similar. That is about 7 MB/s through the tunnel for a single viewer, before the map and scan. The compressed versions (`…/image_raw/compressed`, `…/compressedDepth`) are a small fraction of that and stay available.
+
+The rule is one regular expression in `topic_whitelist`. It hides any topic whose last part is `image_raw`, `image_rect_raw`, `image`, and a few similar names, plus the `theora` and `zstd` transports.
+
+<details>
+<summary><b>How the parameter names were checked</b> — skip unless you're upgrading the bridge.</summary>
+
+The parameter names in the YAML were read from the installed version's own files, not from web docs for other versions: `foxglove_bridge_launch.xml` and the declared strings in `libfoxglove_bridge_component.so` from `ros-jazzy-foxglove-bridge` 3.5.0 (2026-09-26). That version has 31 parameters, including `remote_access`, which is Foxglove's own cloud relay and is set `false` here.
+
+After an upgrade, compare with:
+
+```bash
+ros2 param list /foxglove_bridge
+```
+
+A renamed parameter in the YAML is silently ignored, and the bridge falls back to its default. For `client_topic_whitelist` that default is `.*` — every topic, `/drive` included.
+
+</details>
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Lichtblick connects but shows no topics | Bridge on a different `ROS_DOMAIN_ID` from the stack | Make both the same; see [Running it at boot](#running-it-at-boot) |
+| Lichtblick can't connect at all | Bridge not running, or the tunnel's `<car>-bridge-origin` hostname points somewhere else | `ss -tlnp \| grep 8765`; check the tunnel's public hostname entry |
+| No camera in Lichtblick | Only raw image topics exist, and they are hidden on purpose | Install `ros-jazzy-image-transport-plugins` (see [Before you start](#before-you-start)) |
+| "Server does not support clientPublish" in Lichtblick | Working as intended — nothing may be published | See [why](#why-clients-cannot-publish-anything); use RViz for a pose estimate |
+
+## See also
+
+- [web-dashboard.md](web-dashboard.md#remote-access-through-the-site) — the rest of the remote site, and how the tunnel hostnames fit together
+- [run-diagnostics.md](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/run-diagnostics.md#why-a-rosbag) — where parameter changes made through the bridge get recorded

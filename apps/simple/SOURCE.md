@@ -35,7 +35,7 @@ node apps/simple/test/run_all.js
 | `test_car_model_js.py`, `test_dashboard_js.py`, `test_draw_frames_js.py`, `test_map_panel_js.py`, `test_measure_js.py`, `test_panels_js.py`, `test_proc_panel_js.py` | `test/run_all.js` | These were only wrappers that ran a node file and checked for exit 0 plus `checks passed`. `run_all.js` does exactly that for every file |
 | `test_web_assets.py` | `test/web_assets_test.js` | Every assertion ported — table below |
 | *(new)* | `test/browser/control_link_test.js` | Not a port. Covers what moving the page off the car added: same-origin URLs, writes only over `/<car>/control`, the idle and hidden-tab close, and the protocol check |
-| every other `test_*.py` | stays on the car | They test the Python server (`protocol.py`, `mapstream.py`, `tuning.py`, …), which did not move |
+| every other `test_*.py` | [`car/ros/web_dashboard/test/`](../../car/ros/web_dashboard/test/) | They test the Python server (`protocol.py`, `mapstream.py`, `tuning.py`, …). The server moved into this repo later, with its history, and those tests with it. The car repo's copies of the files above were deleted then |
 
 <details>
 <summary><b>Assertion-by-assertion map of <code>test_web_assets.py</code></b> — for a reviewer checking nothing was dropped. Skip it otherwise.</summary>

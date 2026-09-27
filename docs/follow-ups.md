@@ -29,3 +29,9 @@ Each item says what, why, and roughly how big.
 11. **Confirm the compressed camera topic** and fix the Image panel in [`apps/advanced/layouts/racerbot-default.json`](../apps/advanced/layouts/racerbot-default.json). See [`apps/advanced/README.md`](../apps/advanced/README.md) for every TODO.
 12. **Add the particle filter's particle cloud** to the 3D panel once its topic name is confirmed.
 13. **Watch for new Lichtblick releases.** Bumping is one line in `LICHTBLICK_VERSION`; CI rebuilds and re-checks the asset limits.
+
+## The car side (`car/`)
+
+14. **`car/tools/check_wire_format.py` is broken, and was before it moved here.** It fails the same way against the unmodified package at the car workspace's `e314f96`: its fake IOLoop and captured `_send_to_all` predate `origin_ids` and the per-client `send` in `send_initial_state`. Bring its harness up to date, then run it on an isolated ROS domain. Small.
+15. **The SLAM-reset refusal only knows SFU Racerbot's controllers.** `proccontrol.DRIVING_CONTROLLERS` (refuse `/slam_toolbox/reset` while one of these runs) is safety logic, not config, so it stayed when the package became generic — and it names car 2's nodes. Another team's controllers are not on it. Until that is fixed, set `enable_slam_reset: false` in your car YAML unless your controllers are listed. A fix that can only *add* names (never remove the built-in ones) is the shape. Medium.
+16. **Split `usb_cam_stream`'s pure logic from its node**, so some of its tests can run in CI without ROS. Today both test files import `rclpy` and `cv2` and run only under colcon on a car. Medium.

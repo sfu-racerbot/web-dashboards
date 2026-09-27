@@ -54,8 +54,10 @@ Lichtblick keeps each person's layouts in their own browser. This file is what a
 | Parameters | every node's parameters | Yes (a panel, no names needed) |
 | Service Call | `/pure_pursuit_node/get_parameters` for `max_speed` and `lookahead_distance` — read-only | Yes: every rclpy node offers it, and `pure_pursuit_node` is in the dashboard's `tuning_nodes` |
 
-**Also TODO:** the particle filter's particle cloud topic (not named anywhere in the car repo's docs), and whether `foxglove_bridge` is installed and launched on the car at all — the car repo does not mention it yet. That is the car session's side of the work.
+**Also TODO:** the particle filter's particle cloud topic (not named anywhere in the car repo's docs). `foxglove_bridge` itself is settled: its config and launch file are this repo's `car/ros/web_dashboard` package, and it runs at boot from `car/systemd/` ([car/docs/foxglove-bridge.md](../../car/docs/foxglove-bridge.md)).
 
 ## Safety note
 
-Lichtblick can **publish** to any topic and **call** any service, with no arming step and none of the simple dashboard's guards. The team's `foxglove_bridge` configuration on the car decides what is allowed (its `client_publish` capability and topic/service whitelists). Treat Advanced as an engineering tool, not a trackside one.
+**Lichtblick cannot publish to any topic.** The car's `foxglove_bridge` runs with the `clientPublish` capability removed ([`car/ros/web_dashboard/config/foxglove_bridge.yaml`](../../car/ros/web_dashboard/config/foxglove_bridge.yaml)), and a test fails if it is ever added back. That is deliberate: measured 2026-09-27 on foxglove_bridge 3.5.0, with `clientPublish` on, `client_topic_whitelist` is **not enforced** — a client's `/drive` reached `ackermann_mux`, skipping every driving node's LB deadman. So Lichtblick cannot set a pose estimate (`/initialpose`) either; use RViz on the car's network for that.
+
+It **can** set any node's parameters and **call** any service, with no arming step and none of the simple dashboard's guards — including `/slam_toolbox/reset` while a controller drives. Treat Advanced as an engineering tool, not a trackside one. See [car/docs/foxglove-bridge.md](../../car/docs/foxglove-bridge.md#what-it-exposes).

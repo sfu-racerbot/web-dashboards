@@ -13,7 +13,7 @@ Most of this is clicking in the Cloudflare dashboard, because it sets up who is 
 
 - [ ] `sfuracerbot.ca` is an active zone in the Cloudflare account, with Cloudflare managing its DNS (a "full setup").
 - [ ] Zero Trust is enabled on the account (**Zero Trust** in the dashboard's left bar opens without asking you to sign up), with a login method — the built-in **One-time PIN** (a code by email) is enough.
-- [ ] The car has its tunnel and three servers set up, following [car/README.md](../car/README.md). (Its step 4 sends you back here for the Access and route steps.)
+- [ ] The car is being set up following [car/README.md](../car/README.md). It sends you here three times: its step 6 for steps 1–3 below, its step 8 for step 4, and its step 9 for steps 5–7.
 
 **Hostnames stay one level deep** (`rb2-dash-origin.sfuracerbot.ca`, not `dash.rb2.sfuracerbot.ca`). Cloudflare's free Universal SSL certificate covers `sfuracerbot.ca` and `*.sfuracerbot.ca` only, so a deeper name would have no certificate.
 
