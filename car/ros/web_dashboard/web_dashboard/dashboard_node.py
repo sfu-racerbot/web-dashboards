@@ -442,6 +442,11 @@ class DashboardNode(Node):
         # updating until the call returns (the same freeze auto_map_race.yaml
         # documents for save_map/serialize_map). Do it with the car stopped.
         self.declare_parameter('enable_slam_reset', True)
+        # Your own driving controllers' process names, ADDED to the built-in
+        # proccontrol.DRIVING_CONTROLLERS (which names SFU Racerbot's). A
+        # SLAM reset is refused while any of them runs, and a saved run is
+        # not deleted while one has it open. Can only add, never remove.
+        self.declare_parameter('driving_controllers', Parameter.Type.STRING_ARRAY)
         self.declare_parameter('slam_reset_service', '/slam_toolbox/reset')
         self.declare_parameter('slam_reset_timeout_sec', 10.0)
 
@@ -534,6 +539,8 @@ class DashboardNode(Node):
             1.0, float(self.get_parameter('map_scan_interval_sec').value))
         self.enable_slam_reset = bool(
             self.get_parameter('enable_slam_reset').value)
+        self.driving_controllers = proccontrol.driving_controllers(
+            self._string_list('driving_controllers'))
         self.slam_reset_service = str(
             self.get_parameter('slam_reset_service').value)
         self.slam_reset_timeout_sec = max(
@@ -1572,7 +1579,9 @@ class DashboardNode(Node):
         # Is anything on this machine reading it right now? Deleting the map
         # a live map_server is serving leaves particle_filter blocked in its
         # constructor waiting on /map_server/map -- a hang, not an error.
-        refusal = mapstore.in_use_refusal(run)
+        refusal = mapstore.in_use_refusal(
+            run, consumers=tuple(mapstore.MAP_CONSUMERS) + tuple(
+                sorted(self.driving_controllers - set(mapstore.MAP_CONSUMERS))))
         if refusal:
             self._broadcast(protocol.map_delete_result_message(
                 run.run_id, False, refusal))
@@ -1625,7 +1634,7 @@ class DashboardNode(Node):
                    f'now -- is slam_toolbox running?')
             return
 
-        refusal = proccontrol.slam_reset_refusal()
+        refusal = proccontrol.slam_reset_refusal(controllers=self.driving_controllers)
         if refusal:
             refuse(refusal)
             return

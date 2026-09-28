@@ -1175,3 +1175,36 @@ def test_the_in_use_check_passes_when_nothing_mentions_the_run(tmp_path):
     run, = mapstore.scan([str(tmp_path)])
     other = _Target(4242, 'map_server', 'map_server -p yaml_filename:=/elsewhere')
     assert mapstore.in_use_refusal(run, lambda: [other]) == ''
+
+
+# --------------------------------------------------------------------------
+# A car's own controllers count as map consumers too
+# --------------------------------------------------------------------------
+# Oracle: in_use_by's rule -- a process whose command line names the run is
+# using it -- applied through the real default scan, on a /proc-shaped tree.
+# A controller that is not on the consumer list is never scanned, so it
+# never counts, however plainly its command line names the run.
+
+def _proc_tree(tmp_path, pid, argv):
+    root = tmp_path / 'proc'
+    entry = root / str(pid)
+    entry.mkdir(parents=True)
+    (entry / 'cmdline').write_bytes(b'\0'.join(a.encode() for a in argv) + b'\0')
+    (entry / 'status').write_text('Name:\ttest\nState:\tS (test)\nPPid:\t1\n')
+    return str(root)
+
+
+def test_a_cars_own_controller_reading_the_run_blocks_its_deletion(tmp_path):
+    runs = tmp_path / 'runs'
+    runs.mkdir()
+    path = _make_run(runs, 'run')
+    run, = mapstore.scan([str(runs)])
+    root = _proc_tree(tmp_path, 300, [
+        '/home/y/install/their_pkg/lib/their_pkg/their_controller_node',
+        '--ros-args', '-p', f'racing_line:={path}/raceline_profiled.csv'])
+
+    assert mapstore.in_use_refusal(run, proc_root=root) == ''   # unknown by default
+    reason = mapstore.in_use_refusal(
+        run, consumers=mapstore.MAP_CONSUMERS + ('their_controller_node',), proc_root=root)
+    assert reason.startswith('refused')
+    assert 'their_controller_node (pid 300)' in reason

@@ -671,13 +671,15 @@ def in_use_by(targets, run_path):
     return hits
 
 
-def in_use_refusal(run, scan_fn=None):
+def in_use_refusal(run, scan_fn=None, consumers=MAP_CONSUMERS, proc_root='/proc'):
     """Why this run must not be deleted because something is reading it,
     or '' if nothing is.
 
     Fails closed: a process table that cannot be read is a refusal, not
     "nothing is using it". `scan_fn` defaults to proccontrol's strict scan
-    of MAP_CONSUMERS; it is a parameter so this stays testable without a
+    of `consumers` under `proc_root` -- MAP_CONSUMERS plus, from the node,
+    the car's own `driving_controllers`, which read racing lines out of run
+    directories too. It is a parameter so this stays testable without a
     process tree (and so this module keeps not importing proccontrol at
     import time).
     """
@@ -685,7 +687,7 @@ def in_use_refusal(run, scan_fn=None):
         from web_dashboard import proccontrol
 
         def scan_fn():
-            return proccontrol.scan(allowlist=MAP_CONSUMERS, strict=True)
+            return proccontrol.scan(proc_root, allowlist=consumers, strict=True)
     try:
         targets = scan_fn()
     except Exception as exc:  # noqa: BLE001 - any failure is a refusal

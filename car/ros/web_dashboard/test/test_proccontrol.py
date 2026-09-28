@@ -592,3 +592,46 @@ def test_slam_reset_is_not_blocked_by_the_always_running_mux(tmp_path):
                                self_pid=999, uid=os.getuid())
     assert len(targets) == 1 and targets[0].protected  # sanity: mux listed
     assert proccontrol.slam_reset_refusal(lambda: targets) == ''
+
+
+# --------------------------------------------------------------------------
+# A car's own controllers, added to the SLAM-reset refusal
+# --------------------------------------------------------------------------
+# Oracle: the refusal rule itself (docs: car/README.md, Safety -- "the SLAM
+# reset only refuses while a known controller runs") applied to a process
+# the built-in list cannot know about: another team's controller.
+
+OTHER_TEAMS_CTRL = ['/home/y/install/their_pkg/lib/their_pkg/their_controller_node',
+                    '--ros-args', '-r', '__node:=their_controller_node']
+
+
+def test_driving_controllers_adds_a_cars_own_and_keeps_every_built_in():
+    extended = proccontrol.driving_controllers(['their_controller_node', '  ', ''])
+    assert extended == proccontrol.DRIVING_CONTROLLERS | {'their_controller_node'}
+
+
+@pytest.mark.parametrize('extra', [[], None, ['pure_pursuit_node']])
+def test_driving_controllers_can_never_drop_a_built_in(extra):
+    assert proccontrol.driving_controllers(extra) == proccontrol.DRIVING_CONTROLLERS
+
+
+def test_another_teams_controller_is_not_known_by_default(tmp_path):
+    """The gap this closes: with only the built-ins, a reset goes ahead
+    under a controller that is steering."""
+    root = make_proc(tmp_path, {300: OTHER_TEAMS_CTRL})
+    assert proccontrol.slam_reset_refusal(proc_root=root) == ''
+
+
+def test_a_listed_controller_refuses_the_slam_reset(tmp_path):
+    root = make_proc(tmp_path, {300: OTHER_TEAMS_CTRL})
+    controllers = proccontrol.driving_controllers(['their_controller_node'])
+    reason = proccontrol.slam_reset_refusal(controllers=controllers, proc_root=root)
+    assert reason.startswith('refused')
+    assert 'their_controller_node (pid 300)' in reason
+
+
+def test_extending_the_list_still_refuses_for_the_built_ins(tmp_path):
+    root = make_proc(tmp_path, {100: PP_NODE})
+    controllers = proccontrol.driving_controllers(['their_controller_node'])
+    reason = proccontrol.slam_reset_refusal(controllers=controllers, proc_root=root)
+    assert 'pure_pursuit_node (pid 100)' in reason

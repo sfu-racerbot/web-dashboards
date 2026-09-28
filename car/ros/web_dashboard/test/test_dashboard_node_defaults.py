@@ -23,6 +23,7 @@ import sys
 import pytest
 import rclpy
 
+from web_dashboard import proccontrol
 from web_dashboard.dashboard_node import DashboardNode
 
 
@@ -30,8 +31,8 @@ from web_dashboard.dashboard_node import DashboardNode
 def make_node():
     nodes = []
 
-    def _make():
-        rclpy.init()
+    def _make(*ros_args):
+        rclpy.init(args=['--ros-args', *ros_args] if ros_args else None)
         node = DashboardNode()
         nodes.append(node)
         return node
@@ -77,3 +78,15 @@ def test_the_package_ships_no_cars_names_paths_or_geometry(make_node):
     assert node.laser_offset_x == 0.0
     assert node._string_list('tuning_nodes') == []
     assert node._string_list('tuning_config_files') == []
+
+
+def test_driving_controllers_default_to_the_built_ins_and_a_car_can_add_its_own(make_node):
+    """Oracle: proccontrol.driving_controllers -- built-ins always, plus the
+    car's own; the SLAM-reset gate and the map-delete check read this."""
+    node = make_node()
+    assert node.driving_controllers == proccontrol.DRIVING_CONTROLLERS
+    node.destroy_node()
+    rclpy.shutdown()
+    node = make_node('-p', 'driving_controllers:=[their_controller_node]')
+    assert node.driving_controllers == (
+        proccontrol.DRIVING_CONTROLLERS | {'their_controller_node'})

@@ -131,6 +131,9 @@ web_dashboard_node:
     killable_nodes: [my_controller_node, my_controller_launch.py]
     # Where your tooling writes saved runs, if anywhere.
     map_roots: [~/.ros/my_runs]
+    # Your driving nodes, so a SLAM reset is refused while one runs (the
+    # built-in list only knows SFU Racerbot's). Adds to it; never replaces.
+    driving_controllers: [my_controller_node]
 
 usb_cam_stream_node:
   ros__parameters:
@@ -285,7 +288,7 @@ This was measured, not assumed: on foxglove_bridge 3.5.0, with `clientPublish` o
 
 **The Simple dashboard's write paths are bounded, not locked.** Tuning, stopping a process, resetting SLAM and deleting a saved run all reach the car. Read the [security note](docs/web-dashboard.md#security-note), and switch off any you don't want in your car YAML (`enable_tuning`, `enable_process_control`, `enable_slam_reset`, `enable_map_delete`).
 
-**The SLAM reset only refuses while a *known* controller runs.** Resetting `slam_toolbox` under a driving controller makes its pose jump or freeze, so the dashboard refuses while one runs — but that list (`proccontrol.DRIVING_CONTROLLERS`) names SFU Racerbot's controllers, not yours. **Unless yours are on it, set `enable_slam_reset: false` in your car YAML.** ([docs/follow-ups.md](../docs/follow-ups.md#the-car-side-car) item 15.)
+**The SLAM reset only refuses while a *known* controller runs.** Resetting `slam_toolbox` under a driving controller makes its pose jump or freeze, so the dashboard refuses while one runs. The built-in list (`proccontrol.DRIVING_CONTROLLERS`) names SFU Racerbot's controllers, not yours. **List your driving nodes in `driving_controllers` in your car YAML** (step 4): they are added to the built-in list, never replace it, and a saved run is also not deleted while one of them has it open. If you'd rather not, set `enable_slam_reset: false`.
 
 **On the car's own network, ports 8080 and 9090 need no login.** Both listen on every interface by default (`host: 0.0.0.0`). To make the site the only way in, set `host: 127.0.0.1` for both nodes in your car YAML. The tunnel only needs localhost.
 

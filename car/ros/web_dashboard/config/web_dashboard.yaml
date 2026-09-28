@@ -243,5 +243,11 @@ web_dashboard_node:
     # workspace already documents for save_map/serialize_map in
     # auto_map_race.yaml. Do it with the car stopped.
     enable_slam_reset: true
+    # "Any driving node" above means proccontrol.DRIVING_CONTROLLERS, which
+    # names SFU Racerbot's controllers -- not yours. List your driving
+    # nodes' process names here: they are ADDED to that list (never
+    # replacing it), so a reset is refused while one runs, and a saved run
+    # is not deleted while one has it open. UNSET by default:
+    #   driving_controllers: [my_controller_node]
     slam_reset_service: /slam_toolbox/reset
     slam_reset_timeout_sec: 10.0

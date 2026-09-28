@@ -469,6 +469,20 @@ def scan(proc_root='/proc', allowlist=DEFAULT_KILLABLE, self_pid=None, uid=None,
     return targets
 
 
+def driving_controllers(extra=()):
+    """The built-in DRIVING_CONTROLLERS plus a car's own, never fewer.
+
+    DRIVING_CONTROLLERS names SFU Racerbot's controllers. Another team's are
+    not on it, so their SLAM reset would go ahead under a live controller.
+    The `driving_controllers` parameter adds theirs. It can only ADD: this
+    list decides when something is *refused*, so letting a config remove a
+    name would let a config make a refusal go away. Blank entries are
+    dropped.
+    """
+    added = {str(name).strip() for name in (extra or ()) if str(name).strip()}
+    return frozenset(DRIVING_CONTROLLERS) | added
+
+
 def running_controllers(targets, controllers=DRIVING_CONTROLLERS):
     """The targets that are driving controllers, protected or not.
 
@@ -482,22 +496,24 @@ def running_controllers(targets, controllers=DRIVING_CONTROLLERS):
     return [t for t in targets if t.name in controllers]
 
 
-def slam_reset_refusal(scan_fn=None):
+def slam_reset_refusal(scan_fn=None, controllers=DRIVING_CONTROLLERS,
+                       proc_root='/proc'):
     """Why a SLAM reset must be refused right now, or '' if it may go ahead.
 
     Fails closed: if the process table cannot be read, that is a refusal,
-    never "nothing is running". `scan_fn` defaults to a strict scan of the
-    driving controllers and exists so the decision can be tested without
-    a process tree.
+    never "nothing is running". `scan_fn` defaults to a strict scan of
+    `controllers` (driving_controllers(): the built-ins plus the car's own)
+    under `proc_root`, and exists so the decision can be tested without a
+    process tree.
     """
     if scan_fn is None:
         def scan_fn():
-            return scan(allowlist=DRIVING_CONTROLLERS, strict=True)
+            return scan(proc_root, allowlist=controllers, strict=True)
     try:
         targets = scan_fn()
     except Exception as exc:  # noqa: BLE001 - any failure is a refusal
         return f'could not check what is running: {exc}'
-    driving = running_controllers(targets)
+    driving = running_controllers(targets, controllers)
     if not driving:
         return ''
     named = ', '.join(f'{t.name} (pid {t.pid})' for t in driving)

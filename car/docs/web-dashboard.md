@@ -641,7 +641,7 @@ The node still listens on every interface, IPv4 **and** IPv6, with `host: 0.0.0.
 ss -tlnp | grep 8080
 ```
 
-**Working when:** you get two lines — `0.0.0.0:8080` and `[::]:8080` (or `*:8080`) — with the default `host`, or one `127.0.0.1:8080` line if you restricted it. The node says so at startup too: look for `Serving on port 8080` in the launch output.
+**Working when:** you get two lines — `0.0.0.0:8080` and `[::]:8080` (or `*:8080`) — with the default `host`, or one `127.0.0.1:8080` line if you restricted it. The node says so at startup too: look for `Serving the WebSocket (/ws) on port 8080` in the launch output.
 
 <details>
 <summary><b>Why <code>0.0.0.0</code> wasn't already enough</b> — the bind-address trap, and why it got its own module. Skip unless you're changing how the server binds.</summary>
@@ -1354,6 +1354,7 @@ The package's generic defaults are in `car/ros/web_dashboard/config/web_dashboar
 | `map_roots` | unset (none) | The **only** directories a browser can see or delete inside. Car 2: `[~/.ros/racerbot_auto, ~/.ros/racerbot_sim/auto]`. Anything in a git working tree, `~/.ros/racerbot_sim/tracks`, `$HOME` itself and any top-level system directory are refused whatever you put here, and each refusal is logged at startup. See `web_dashboard/mapstore.py` |
 | `map_scan_interval_sec` | `10.0` | How often the saved-run list is re-read. Long because run directories only change when a run ends |
 | `enable_slam_reset` | `true` | Whether [resetting live SLAM](#reset-the-live-slam-session) exists at all |
+| `driving_controllers` | unset (none) | Your driving nodes' process names, **added** to the built-in `proccontrol.DRIVING_CONTROLLERS` (SFU Racerbot's controllers) — never replacing it. A SLAM reset is refused while any of them runs, and a saved run is not deleted while one has it open. Car 2 needs none: its controllers are built in |
 | `slam_reset_service` | `/slam_toolbox/reset` | The service called. `slam_launch.py` runs the node as `slam_toolbox` in the root namespace, which is where this name comes from |
 | `slam_reset_timeout_sec` | `10.0` | When to stop waiting for an unanswered reset. A timeout is reported as "no answer", never as "nothing happened" |
 
