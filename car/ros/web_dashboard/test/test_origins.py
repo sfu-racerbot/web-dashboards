@@ -12,6 +12,7 @@ must NOT be able to reach the dashboard's write paths.
 import pytest
 
 from web_dashboard.origins import (
+    startup_warning,
     is_origin_allowed,
     normalize_origin,
     parse_allowed_origins,
@@ -162,3 +163,25 @@ def test_normalization_follows_the_default_port_rule(raw, expected):
     """Oracle: RFC 6454 section 4 -- an origin is (scheme, host, port),
     with the scheme's default port implied when none is written."""
     assert normalize_origin(raw) == expected
+
+
+# --------------------------------------------------------------------------
+# Saying so when no site may connect
+# --------------------------------------------------------------------------
+# Oracle: the behaviour above -- with nothing allowed, every site's
+# WebSocket is a 403 -- and the incident that motivated it: on 2026-09-27,
+# the first dashboard restarted after the package defaults went generic
+# was started with the bare package launch, and the site showed CAR
+# OFFLINE with nothing on the car saying why.
+
+@pytest.mark.parametrize('entries', [[], None, [SITE + '/']])   # the last: every entry rejected
+def test_no_allowed_site_is_warned_about_and_names_the_fix(entries):
+    allowed, _ = parse_allowed_origins(entries)
+    warning = startup_warning(allowed)
+    assert 'no site can open the WebSocket' in warning
+    assert 'car_config:=' in warning
+
+
+def test_an_allowed_site_gives_no_warning():
+    allowed, _ = parse_allowed_origins([SITE])
+    assert startup_warning(allowed) is None

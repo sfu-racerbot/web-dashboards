@@ -257,3 +257,47 @@ def test_arguments_it_cannot_use_are_refused_with_usage(argv, capsys):
         parse_args(argv)
     assert exit_info.value.code == 2
     assert 'usage: remote_check' in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------
+# The public probe reports a redirect instead of following it
+# --------------------------------------------------------------------------
+# Oracle: a recorded measurement. On 2026-09-27 `curl -D -` showed every
+# rb2-*-origin hostname answering HTTP 302 to <team>.cloudflareaccess.com
+# (Access in front, as intended), while remote_check reported "HTTP 200 --
+# NOT protected": urllib had followed the 302 to the login page. A real
+# local server stands in for the edge: it redirects to a page that answers
+# 200, exactly the shape that fooled the checker.
+
+def test_the_probe_sees_accesss_302_not_the_login_page_behind_it():
+    import http.server
+    import threading
+
+    from web_dashboard.remote_check import _public_get
+
+    class Edge(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == '/':
+                self.send_response(302)
+                self.send_header('Location', f'http://127.0.0.1:{self.server.server_port}'
+                                 '/cdn-cgi/access/login/rb2-dash-origin.sfuracerbot.ca')
+                self.end_headers()
+            else:
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'<title>Sign in - Cloudflare Access</title>')
+
+        def log_message(self, *_args):
+            pass
+
+    server = http.server.HTTPServer(('127.0.0.1', 0), Edge)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        status, headers, body = _public_get(f'http://127.0.0.1:{server.server_port}/')
+    finally:
+        server.shutdown()
+    assert status == 302
+    assert '/cdn-cgi/access/login/' in headers['location']
+    headers['location'] = 'https://sighton.cloudflareaccess.com/cdn-cgi/access/login/x'
+    assert classify_edge(status, headers, body)[0] == OK

@@ -91,6 +91,24 @@ def parse_allowed_origins(entries):
     return frozenset(allowed), rejected
 
 
+def startup_warning(allowed):
+    """The warning the node logs when no site may connect, else None.
+
+    With allowed_origins unset -- the package default, and what a bare
+    `ros2 launch web_dashboard web_dashboard_launch.py` gives you -- every
+    site's WebSocket gets HTTP 403 and the site shows CAR OFFLINE, with
+    nothing on the car saying why. It happened on the first restart after
+    the defaults went generic, so the node says it out loud.
+    """
+    if allowed:
+        return None
+    return ('allowed_origins is empty: no site can open the WebSocket -- every '
+            'connection gets HTTP 403 and the site shows CAR OFFLINE. Start the '
+            "dashboard with your car's YAML: ros2 launch web_dashboard "
+            'web_dashboard_launch.py car_config:=<your car YAML> (or your '
+            "workspace's wrapper launch). See web-dashboards car/README.md, step 4.")
+
+
 def _host_header_matches(origin, host_header):
     """Tornado's own same-origin rule: Origin's host:port == Host header.
 

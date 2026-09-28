@@ -219,10 +219,27 @@ def _local_addresses():
     return [line.split()[3] for line in out.splitlines()[1:] if len(line.split()) > 3]
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Report a redirect instead of following it.
+
+    Cloudflare Access answers an unauthenticated request with a 302 to its
+    login page, and classify_edge recognises exactly that. urllib's default
+    opener follows the 302 and returns the login page's 200 instead, which
+    classify_edge rightly calls "NOT protected" -- a false alarm about a
+    hostname that is protected (seen 2026-09-27, once the zone's bot
+    challenge stopped masking it)."""
+
+    def redirect_request(self, *_args, **_kwargs):
+        return None  # urllib then raises HTTPError carrying the 3xx itself
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def _public_get(url):
     request = urllib.request.Request(url, headers={'User-Agent': 'racerbot-remote-check'})
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with _OPENER.open(request, timeout=10) as response:
             return response.status, {k.lower(): v for k, v in response.headers.items()}, \
                 response.read(600).decode('utf-8', 'replace')
     except urllib.error.HTTPError as err:

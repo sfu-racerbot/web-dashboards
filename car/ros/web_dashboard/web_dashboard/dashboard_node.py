@@ -473,6 +473,9 @@ class DashboardNode(Node):
             self.get_logger().warn(
                 f"allowed_origins: ignoring {entry!r} -- expected exactly "
                 f"scheme://host[:port], e.g. 'https://dashboard.example.org'")
+        no_site = origins.startup_warning(self.allowed_origins)
+        if no_site:
+            self.get_logger().warn(no_site)
         if bool(self.get_parameter('serve_static').value):
             self.get_logger().warn(
                 'serve_static: true is ignored -- this node no longer serves '
