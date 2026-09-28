@@ -12,7 +12,8 @@ was a second lossy generation, and what made the picture look soft).
 Needs rclpy but no camera and no network -- frames are handed straight to
 the encoder.
 
-    python3 -m pytest src/usb_cam_stream/test/test_stream_tiers.py -v
+    ROS_DOMAIN_ID=79 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST \
+        python3 -m pytest car/ros/usb_cam_stream/test/test_stream_tiers.py -v
 """
 import cv2
 import numpy as np

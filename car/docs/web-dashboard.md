@@ -403,11 +403,11 @@ So zooming into one corner of the track on the main canvas doesn't lose the big 
 
 **Bottom-right inset** — the live camera feed, if [`usb_cam_stream`](../ros/usb_cam_stream/README.md) is running.
 
-This is a completely separate node on its own port (`9090`) — the browser just points an `<img>` at `http://<car-ip>:9090/stream` directly. An MJPEG stream is a plain, never-ending HTTP response: no WebSocket, no JSON frame.
+This is a completely separate node on its own port (`9090`). The page points an `<img>` at the site's `/<car>/camera/stream`, which the site passes down the car's `<car>-cam-origin` tunnel route to that port. An MJPEG stream is a plain, never-ending HTTP response: no WebSocket, no JSON frame.
 
 If that node isn't running, the inset shows a "camera offline" placeholder and retries the connection every 3 seconds — no need to reload the dashboard page once the camera node starts.
 
-Either variant of that node fills this panel: `usb_cam_stream_launch.py` (a UVC webcam) or `realsense_stream_launch.py` (the RealSense D435i's color feed, via its ROS topic — see [realsense-camera.md](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/realsense-camera.md)). They share port 9090, so run one at a time.
+Either source fills this panel: a UVC webcam (the package default), or a ROS image topic via `image_topic` in your car YAML — SFU Racerbot car 2 streams its RealSense D435i's colour feed that way ([realsense-camera.md](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/realsense-camera.md)). Only one stream can hold port 9090, so run one at a time.
 
 Click the inset to open a new full-window recording tab with current time, speed, steering, LB, stopwatch, CPU, and WiFi overlays; use the browser's tab or screen recording on that view.
 
