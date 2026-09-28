@@ -32,5 +32,4 @@ Each item says what, why, and roughly how big.
 
 ## The car side (`car/`)
 
-14. **`car/tools/check_wire_format.py` is broken, and was before it moved here.** It fails the same way against the unmodified package at the car workspace's `e314f96`: its fake IOLoop and captured `_send_to_all` predate `origin_ids` and the per-client `send` in `send_initial_state`. Bring its harness up to date, then run it on an isolated ROS domain. Small.
 16. **Split `usb_cam_stream`'s pure logic from its node**, so some of its tests can run in CI without ROS. Today both test files import `rclpy` and `cv2` and run only under colcon on a car. Medium.

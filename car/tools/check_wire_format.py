@@ -39,6 +39,7 @@ from nav_msgs.msg import OccupancyGrid, Odometry
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 
+from web_dashboard import roles
 from web_dashboard.dashboard_node import DashboardNode
 
 
@@ -46,13 +47,27 @@ WIDTH, HEIGHT = 60, 40
 
 
 class _FakeClient:
-    """Stands in for a connected browser tab."""
+    """Stands in for the site's relay connection -- the one connection a
+    car normally has. Its send() is the real server's: every message goes
+    through roles.frames_for() for its role, exactly as
+    server.DashboardWebSocket.send does, and what would be written to the
+    socket is recorded instead."""
 
-    def __init__(self):
+    _ids = iter(range(1, 1_000_000))
+
+    def __init__(self, role=roles.ROLE_RELAY):
         self.messages = []
+        self.role = role
+        self.conn_id = next(self._ids)
 
     def write_message(self, message, binary=False):
         self.messages.append(message)
+
+    def send(self, header, binary_payload=None, is_origin=True):
+        for frame, with_binary in roles.frames_for(self.role, header, is_origin):
+            self.write_message(json.dumps(frame))
+            if with_binary and binary_payload is not None:
+                self.write_message(binary_payload, binary=True)
 
     def close(self):
         pass
@@ -72,8 +87,9 @@ class Harness:
         # Run IOLoop callbacks inline, and capture instead of writing.
         self.node._loop = type(
             'Inline', (), {'add_callback': staticmethod(lambda fn: fn())})()
-        self.node._send_to_all = lambda header, payload=None: self.sent.append(
-            (header, payload))
+        self.node._send_to_all = (
+            lambda header, payload=None, origin_ids=frozenset():
+            self.sent.append((header, payload)))
 
     def close(self):
         self.node.destroy_node()
