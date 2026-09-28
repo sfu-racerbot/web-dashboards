@@ -51,7 +51,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'   # Ubuntu 24.04 / ROS 2 Jazzy's Python
-      - run: pip install pytest tornado psutil numpy pyyaml
+      - run: pip install pytest tornado psutil numpy pyyaml setuptools   # setuptools: test_install_files.py runs setup.py
       # drive_intent is the car workspace's package, not this repo's; the
       # intent tests use its schema as their oracle. Pinned to a commit so
       # CI here cannot change under us.

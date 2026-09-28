@@ -4,7 +4,7 @@
 #
 #   car/ros/run_ros_free_tests.sh            # from the repo root
 #
-# Needs: python3 with pytest, tornado, psutil, numpy, pyyaml; and the
+# Needs: python3 with pytest, tornado, psutil, numpy, pyyaml, setuptools; and the
 # drive_intent package importable (PYTHONPATH) for the two intent files --
 # it belongs to the car workspace, see car/README.md "Running the tests".
 #
