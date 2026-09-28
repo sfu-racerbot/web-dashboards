@@ -44,6 +44,18 @@ def test_the_startup_line_never_prints_an_unopenable_url():
     assert 'http://127.0.0.1:8080/' in describe('127.0.0.1', 8080)
 
 
+@pytest.mark.parametrize('host', ['0.0.0.0', '::', '', '127.0.0.1', '192.168.0.20'])
+def test_the_startup_line_never_tells_anyone_to_open_a_page_on_the_car(host):
+    """Oracle: the node serves no pages -- every page is a 404, only /ws
+    answers (server.make_app; car/docs/web-dashboard.md, "What the car's
+    port 8080 serves"). A line saying 'open http://<car>:8080/' sends
+    people to that 404; it did, on 2026-09-27."""
+    line = describe(host, 8080)
+    assert 'open http' not in line
+    assert '/ws' in line
+    assert 'open the dashboard from the site' in line
+
+
 # --------------------------------------------------------------------------
 # ...and the effect it has, which is the part that actually broke
 # --------------------------------------------------------------------------

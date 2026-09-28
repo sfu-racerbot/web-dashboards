@@ -867,7 +867,7 @@ The call stalls `slam_toolbox`'s own executor while it runs, so `done=False` is 
 | "no map yet" never clears | Nothing has published `/map` yet (no SLAM/localization running), or a durability/QoS mismatch — check `ros2 topic info /map` |
 | Map shows but scan/car never appear | No pose yet — seed localization with RViz's "2D Pose Estimate" (see [operations.md](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/operations.md)) |
 | A feed's status dot is red | That feed has gone stale (>1s since the last update, >3s for `stats`) — check the corresponding ROS topic with `ros2 topic hz`, or the node's own terminal output for `stats`/`drive` |
-| `stats` never shows real numbers | The running `dashboard_node` process predates a rebuild — Python files aren't hot-reloaded, so restart `ros2 launch web_dashboard web_dashboard_launch.py` after any `colcon build` that touches this package |
+| `stats` never shows real numbers | The running `dashboard_node` process predates a rebuild — Python files aren't hot-reloaded, so restart the dashboard (`ros2 launch web_dashboard web_dashboard_launch.py car_config:=<your car YAML>`, or your workspace's wrapper launch) after any `colcon build` that touches this package |
 | `temp`/`wifi` show `n/a` | No readable `cpu-thermal` thermal zone / no wireless interface on this machine (e.g. developing on a laptop docked to Ethernet) — expected, not a bug |
 | Camera inset shows "camera offline" | `usb_cam_stream` isn't running (it is started by hand), or the car's `<car>-cam-origin` tunnel route doesn't point at its port (`9090`) |
 | The processes panel is missing | `enable_process_control: false`, or a running `dashboard_node` that predates this feature — restart it after `colcon build` |

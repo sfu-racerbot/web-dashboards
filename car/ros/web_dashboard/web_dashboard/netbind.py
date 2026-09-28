@@ -42,8 +42,12 @@ def describe(host, port):
     It names the families that are actually listening, because "Serving on
     http://0.0.0.0:8080/" is not an address anyone can open, and it hides
     the exact distinction this module exists to get right.
+
+    It never tells anyone to *open* a page here: the node serves only the
+    WebSocket (/ws) and 404s every page -- the dashboard is the site.
     """
     if wants_all_interfaces(host):
-        return (f'Serving on port {port}, every interface, IPv4 + IPv6 '
-                f'-- open http://<car-ip-or-hostname>:{port}/')
-    return f'Serving on http://{host}:{port}/ (this address only)'
+        return (f'Serving the WebSocket (/ws) on port {port}, every interface, '
+                f'IPv4 + IPv6 -- no pages here; open the dashboard from the site')
+    return (f'Serving the WebSocket (/ws) on http://{host}:{port}/ (this address '
+            f'only) -- no pages here; open the dashboard from the site')
