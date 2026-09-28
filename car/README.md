@@ -299,8 +299,8 @@ Three runners, each for a different part:
 | Runner | Runs | Where |
 |---|---|---|
 | `npm test` | The site: the Simple dashboard's JavaScript tests (including the protocol-version check against `ros/web_dashboard`), the Worker, the mock car | Any machine with Node 22; CI |
-| [`car/ros/run_ros_free_tests.sh`](ros/run_ros_free_tests.sh) | Every car-side Python test that needs **no ROS**, by name — 676 tests, including the bridge's safety test | Any machine with Python 3.12, `pytest tornado psutil numpy pyyaml setuptools`, and `drive_intent` on `PYTHONPATH`; CI |
-| `colcon test` | Everything above in the two packages, **plus** the tests that import `rclpy`/`cv2`: `usb_cam_stream`'s two files and `test_dashboard_node_defaults.py` | A car, with the workspace built |
+| [`car/ros/run_ros_free_tests.sh`](ros/run_ros_free_tests.sh) | Every car-side Python test that needs **no ROS**, by name — 757 tests, including the bridge's safety test and `usb_cam_stream`'s `test_stream_logic.py` | Any machine with Python 3.12, `pytest tornado psutil numpy pyyaml setuptools`, and `drive_intent` on `PYTHONPATH`; CI |
+| `colcon test` | Everything above in the two packages, **plus** the tests that import `rclpy`/`cv2`: `usb_cam_stream`'s `test_stream_tiers.py` and `test_camera_stream_node.py`, and `web_dashboard`'s `test_dashboard_node_defaults.py` | A car, with the workspace built |
 
 The script refuses to run if a test file is on neither of its two lists, so a new test cannot silently go unrun.
 

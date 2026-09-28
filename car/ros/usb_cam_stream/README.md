@@ -47,9 +47,13 @@ shows the picture (port `9090`, not `8080` — that's `web_dashboard`'s).
 SFU Racerbot car 2 starts its RealSense and this stream together with
 `ros2 launch racerbot_launch realsense_camera_launch.py`.
 
-**Tests:** both files in `test/` import `rclpy` and `cv2`, so they run under
-colcon on a car (on an isolated ROS domain), not in this repo's ROS-free CI
-— see [car/README.md](../../README.md#running-the-tests).
+**Tests:** the stream's decisions (which tier a request gets, preview
+sizing, spotting the camera's own JPEG, the status states and log
+throttling) live in `usb_cam_stream/stream_logic.py`, which imports neither
+ROS nor OpenCV; `test/test_stream_logic.py` covers it and runs anywhere,
+CI included. The other two files in `test/` import `rclpy` and `cv2`, so
+they run under colcon on a car (on an isolated ROS domain) — see
+[car/README.md](../../README.md#running-the-tests).
 
 The launch terminal reports the exact camera state: waiting for a device or
 image topic, negotiated V4L2 mode, first-frame recovery, healthy frame count/

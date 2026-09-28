@@ -29,7 +29,3 @@ Each item says what, why, and roughly how big.
 11. **Confirm the compressed camera topic** and fix the Image panel in [`apps/advanced/layouts/racerbot-default.json`](../apps/advanced/layouts/racerbot-default.json). See [`apps/advanced/README.md`](../apps/advanced/README.md) for every TODO.
 12. **Add the particle filter's particle cloud** to the 3D panel once its topic name is confirmed.
 13. **Watch for new Lichtblick releases.** Bumping is one line in `LICHTBLICK_VERSION`; CI rebuilds and re-checks the asset limits.
-
-## The car side (`car/`)
-
-16. **Split `usb_cam_stream`'s pure logic from its node**, so some of its tests can run in CI without ROS. Today both test files import `rclpy` and `cv2` and run only under colcon on a car. Medium.

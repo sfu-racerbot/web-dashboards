@@ -41,7 +41,8 @@ jobs:
 
   # The car-side ROS packages (car/ros/), without ROS: only the test files
   # that import no rclpy/cv2, named one by one in run_ros_free_tests.sh.
-  # The rest (usb_cam_stream's, and test_dashboard_node_defaults.py) run
+  # The rest (usb_cam_stream's test_stream_tiers.py and
+  # test_camera_stream_node.py, and test_dashboard_node_defaults.py) run
   # under colcon on a car -- see car/README.md, "Running the tests".
   car-python:
     runs-on: ubuntu-24.04
@@ -66,7 +67,7 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/.ci-car-ws/src/drive_intent
         run: car/ros/run_ros_free_tests.sh
-      - name: usb_cam_stream compiles (its tests need ROS; they run on the car)
+      - name: usb_cam_stream node compiles (its node tests need ROS; they run on the car)
         run: python -m py_compile car/ros/usb_cam_stream/usb_cam_stream/*.py car/ros/usb_cam_stream/launch/*.py car/ros/web_dashboard/launch/*.py
 
   build:

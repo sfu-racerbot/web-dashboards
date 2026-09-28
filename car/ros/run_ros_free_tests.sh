@@ -39,6 +39,7 @@ ROS_FREE=(
   web_dashboard/test/test_server.py
   web_dashboard/test/test_stopwatch.py
   web_dashboard/test/test_tuning.py
+  usb_cam_stream/test/test_stream_logic.py
 )
 ROS_ONLY=(
   web_dashboard/test/test_dashboard_node_defaults.py
@@ -54,7 +55,14 @@ if [ "$listed" != "$on_disk" ]; then
   exit 1
 fi
 
-# From the package directory, as colcon runs them: the tests import
-# web_dashboard from there.
-cd web_dashboard
-exec python3 -m pytest -v -p no:cacheprovider "${ROS_FREE[@]#web_dashboard/}" "$@"
+# Each package's files from its own directory, as colcon runs them: the
+# tests import their package from there.
+status=0
+for pkg in web_dashboard usb_cam_stream; do
+  files=()
+  for f in "${ROS_FREE[@]}"; do
+    [[ $f == "$pkg"/* ]] && files+=("${f#"$pkg"/}")
+  done
+  (cd "$pkg" && python3 -m pytest -v -p no:cacheprovider "${files[@]}" "$@") || status=1
+done
+exit $status

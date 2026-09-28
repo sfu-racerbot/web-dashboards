@@ -86,49 +86,13 @@ import tornado.iostream
 import tornado.web
 from ament_index_python.packages import get_package_share_directory
 
-MJPEG_BOUNDARY = b'racerbotframe'
-
-PREVIEW = 'preview'
-FULL = 'full'
-
-
-class _Tier:
-    """One encoded size of the stream, shared by everyone watching it."""
-
-    def __init__(self, name, max_width, quality):
-        self.name = name
-        self.max_width = int(max_width)   # 0 = leave at the source's size
-        self.quality = int(quality)
-        self.jpeg = None
-        self.seq = 0
-        # Number of connected viewers. Only the IOLoop mutates it; the
-        # encode thread reads it to decide whether this tier is worth
-        # encoding at all.
-        self.viewers = 0
-        # Futures belonging to handlers parked waiting for the next frame.
-        # Only ever touched on the IOLoop thread.
-        self._waiters = []
-
-    def store(self, jpeg):
-        self.jpeg = jpeg
-        self.seq += 1
-
-    # -- IOLoop-thread only ------------------------------------------------
-
-    def wait_for_frame(self):
-        # get_running_loop, not get_event_loop: this is only ever called
-        # from inside a running handler coroutine, and the deprecated form
-        # would quietly create a second loop if that ever stopped being true.
-        future = asyncio.get_running_loop().create_future()
-        self._waiters.append(future)
-        return future
-
-    def wake_waiters(self):
-        for future in self._waiters:
-            if not future.done():
-                future.set_result(None)
-        self._waiters.clear()
-
+# The decisions below live in stream_logic so they can be tested without
+# ROS or a camera. _Tier/_looks_like_jpeg keep their old names here.
+from usb_cam_stream.stream_logic import (   # noqa: F401 (re-exported)
+    FULL, MJPEG_BOUNDARY, PREVIEW, Tier as _Tier, looks_like_jpeg as _looks_like_jpeg,
+    mjpeg_part, scaled_size, should_log_status, stream_status, tier_for_request,
+    tier_qualities,
+)
 
 class MJPEGStreamHandler(tornado.web.RequestHandler):
     """One instance per connected browser tab / <img> element. The HTTP
@@ -163,12 +127,7 @@ class MJPEGStreamHandler(tornado.web.RequestHandler):
                     await tier.wait_for_frame()
                     continue
                 last_seq = seq
-                self.write(
-                    b'--' + MJPEG_BOUNDARY + b'\r\n'
-                    b'Content-Type: image/jpeg\r\n'
-                    b'Content-Length: ' + str(len(jpeg)).encode() + b'\r\n\r\n'
-                    + jpeg + b'\r\n'
-                )
+                self.write(mjpeg_part(jpeg))
                 # Waiting for the flush is what applies backpressure. Any
                 # frames encoded while it is in flight are simply skipped:
                 # the next pass reads whatever is newest at that moment, so
@@ -239,14 +198,14 @@ class CameraStreamNode(Node):
         # parameter: it is a CPU guard, not a tuning knob.
         self.reopen_backoff_sec = 0.5
 
-        legacy_quality = int(self.get_parameter('jpeg_quality').value)
-        preview_quality = int(self.get_parameter('preview_quality').value)
-        full_quality = int(self.get_parameter('full_quality').value)
-        if legacy_quality:
+        preview_quality, full_quality, legacy = tier_qualities(
+            self.get_parameter('jpeg_quality').value,
+            self.get_parameter('preview_quality').value,
+            self.get_parameter('full_quality').value)
+        if legacy:
             self.get_logger().warn(
                 'jpeg_quality is deprecated; use preview_quality/full_quality. '
-                f'Applying {legacy_quality} to both tiers.')
-            preview_quality = full_quality = legacy_quality
+                f'Applying {preview_quality} to both tiers.')
 
         self.tiers = {
             PREVIEW: _Tier(PREVIEW, self.get_parameter('preview_width').value,
@@ -319,11 +278,7 @@ class CameraStreamNode(Node):
         """Which stream a request wants. Preview unless it asks otherwise --
         the dashboard inset is the common case and the one that must be
         cheap."""
-        if tier_argument in self.tiers:
-            return self.tiers[tier_argument]
-        if full_argument not in (None, '', '0', 'false'):
-            return self.tiers[FULL]
-        return self.tiers[PREVIEW]
+        return self.tiers[tier_for_request(self.tiers, tier_argument, full_argument)]
 
     def watched_tiers(self):
         return [tier for tier in self.tiers.values() if tier.viewers]
@@ -551,13 +506,12 @@ class CameraStreamNode(Node):
 
     def _encode(self, frame, tier: _Tier):
         scaled = frame
-        if tier.max_width and frame.shape[1] > tier.max_width:
-            height = max(1, round(frame.shape[0] * tier.max_width / frame.shape[1]))
+        size = scaled_size(frame.shape[1], frame.shape[0], tier.max_width)
+        if size is not None:
             # INTER_AREA is the right filter for shrinking: it averages the
             # pixels being merged instead of point-sampling them, so the
             # small tier stays legible rather than aliased.
-            scaled = cv2.resize(frame, (tier.max_width, height),
-                                interpolation=cv2.INTER_AREA)
+            scaled = cv2.resize(frame, size, interpolation=cv2.INTER_AREA)
         ok, buf = cv2.imencode(
             '.jpg', scaled, [int(cv2.IMWRITE_JPEG_QUALITY), tier.quality])
         if not ok:
@@ -610,48 +564,19 @@ class CameraStreamNode(Node):
 
     def _status_callback(self):
         now = time.monotonic()
-        if self.latest_frame_time is None:
-            if self.image_topic:
-                state = 'waiting_for_image_topic'
-                detail = f"no Image received on '{self.image_topic}'"
-            elif self._cap is None:
-                state = 'waiting_for_camera'
-                detail = f"camera '{self.device}' is not open"
-            else:
-                state = 'waiting_for_first_frame'
-                detail = f"camera '{self.device}' is open but has not produced a frame"
-            self._log_stream_status(state, detail)
-            return
-
-        frame_age_sec = now - self.latest_frame_time
-        if frame_age_sec >= self.frame_timeout_sec:
-            if self.image_topic:
-                state = 'image_topic_stale'
-                source = f"Image topic '{self.image_topic}'"
-            else:
-                state = 'camera_frames_stale'
-                source = f"camera '{self.device}'"
+        state, detail = stream_status(
+            now, self.latest_frame_time, self.frame_timeout_sec,
+            self.image_topic, self.device, self._cap is not None)
+        if state == 'streaming':
             self._log_stream_status(
-                state,
-                f'{source} has produced no frame for {frame_age_sec:.2f}s '
-                f'(limit {self.frame_timeout_sec:.2f}s)',
-            )
-            return
-
-        self._log_stream_status(
-            'streaming', self._streaming_detail(frame_age_sec), level='info')
+                state, self._streaming_detail(now - self.latest_frame_time), level='info')
+        else:
+            self._log_stream_status(state, detail)
 
     def _log_stream_status(self, state: str, detail: str, level: str = None):
         now = time.monotonic()
-        state_changed = state != self.last_stream_state
-        period_elapsed = (
-            self.status_log_period_sec > 0.0
-            and (
-                self.last_stream_log_time is None
-                or now - self.last_stream_log_time >= self.status_log_period_sec
-            )
-        )
-        if not state_changed and not period_elapsed:
+        if not should_log_status(state, self.last_stream_state, now,
+                                 self.last_stream_log_time, self.status_log_period_sec):
             return
 
         message = f'CAMERA [{state}] {detail}'
@@ -679,22 +604,6 @@ class CameraStreamNode(Node):
             # Catch-all *after* /stream -- Tornado matches routes in order.
             (r'/(.*)', tornado.web.StaticFileHandler, {'path': static_dir, 'default_filename': 'index.html'}),
         ])
-
-
-def _looks_like_jpeg(buffer) -> bool:
-    """Is this the camera's raw JPEG rather than a decoded BGR image?
-
-    A decoded frame is a 3-dimensional array; a JPEG comes back as a flat
-    byte run starting with the SOI marker FF D8.
-    """
-    if buffer is None:
-        return False
-    try:
-        if getattr(buffer, 'ndim', 0) != 1 or buffer.size < 4:
-            return False
-        return int(buffer[0]) == 0xFF and int(buffer[1]) == 0xD8
-    except (TypeError, ValueError, IndexError):
-        return False
 
 
 def main(args=None):
