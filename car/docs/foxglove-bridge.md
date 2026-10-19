@@ -70,6 +70,16 @@ That should print one line containing `127.0.0.1:8765`. `0.0.0.0:8765` or `*:876
 
 Then open the site, sign in, and pick **Advanced** for the car. It connects through the car's `<car>-bridge-origin` hostname (car 2: `rb2-bridge-origin.sfuracerbot.ca`).
 
+### Changing the layout
+We want Lichtblick to focus on certain things related to our car, so we need to upload the custom layout that shipped with `f1tenth_gym_ros`.
+
+1. Download the [layout file](https://raw.githubusercontent.com/f1tenth/f1tenth_gym_ros/refs/heads/dev-humble/config/foxglove/gym_bridge_foxglove.json)
+2. Open the advanced dashboard (Lichtblick) and click the Layouts tab in the top left.
+3. Click `Import From File` and upload the downloaded file.
+4. Select `gym_bridge_foxglove` from the options on the left side
+5. To remove the axis indicators (coloured arrows on the car) go to the `Panel` tab and underneath `3D Panel` > `Transforms` > `Settings`, set `Axis Scale` to 0
+6. To remove the large text labels in the simulator stay in the `Panel` and and underneath `3D Panel` > `Scene`, set `Label Scale` to 0
+
 ### Running it at boot
 
 `car/systemd/foxglove-bridge.service` runs the same launch at boot, as the user who owns the workspace, through `car/systemd/foxglove-bridge.sh`. That wrapper sources `/opt/ros/jazzy` and the workspace's `install/` first, because systemd starts services with an almost empty environment. It is the **only** service this repo installs.
