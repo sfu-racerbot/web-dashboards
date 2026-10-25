@@ -203,10 +203,20 @@ Doing this first means the car's hostnames are never, even briefly, open to the 
 **Terminal 1, on the car** (needs sudo):
 
 ```bash
-sudo ~/racerbot-ws/src/web_dashboards/car/cloudflared/install.sh <paste-the-token>
+sudo ~/racerbot-ws/src/web_dashboards/car/cloudflared/install.sh
 ```
 
+It asks for the token; paste it there (it isn't shown). Don't put the token on the command line, here or in Cloudflare's own `cloudflared service install <token>`: it would stay in your shell history and on the service's command line, where any user on the car can read it with `ps`. The script keeps it in `/etc/cloudflared/tunnel.env`, which only root can read.
+
 **Working when:** the script ends with `cloudflared installed and running`, and within a minute the dashboard shows the tunnel as **Healthy**. Select **Continue** there.
+
+**Installed it before this change, or with `cloudflared service install`?** Then the token is on the command line. `car/check.sh` says `WARN` if so. Move it, without re-entering it:
+
+```bash
+sudo ~/racerbot-ws/src/web_dashboards/car/cloudflared/install.sh --migrate
+```
+
+**Working when:** `ps -o args= -C cloudflared` shows `tunnel run` with no `--token`. The token has been readable on the car until now, so also consider **Refresh token** on the tunnel's page in the dashboard, then run the script again without `--migrate` and paste the new one.
 
 ## 8. Point the car's hostnames at the three ports
 

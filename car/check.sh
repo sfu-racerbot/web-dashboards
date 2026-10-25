@@ -26,6 +26,10 @@ check_port 9090 "usb_cam_stream (camera)" \
 echo "tunnel:"
 if systemctl is-active --quiet cloudflared; then
   echo "  ok      cloudflared service is running"
+  # The token on the command line is readable by every user on the car.
+  if ps -o args= -C cloudflared | grep -q -- '--token'; then
+    echo "  WARN    cloudflared has its tunnel token on its command line, readable by any user here -- sudo car/cloudflared/install.sh --migrate"; ok=1
+  fi
 else
   echo "  MISSING cloudflared service is not running -- see car/README.md, the tunnel step"; ok=1
 fi
