@@ -410,12 +410,12 @@ class DashboardNode(Node):
         # wherever the car's own tooling writes its run directories. Empty
         # by default -- each car lists its own in its YAML.
         #
-        # Anything inside a git working tree is refused whatever you put here
-        # -- src/particle_filter/maps holds tracked upstream demo maps, and a
-        # browser deleting tracked files would surface as a mystery in
-        # `git status`. So is ~/.ros/racerbot_sim/tracks, which holds
-        # generated simulator *inputs* rather than run output, and so is $HOME
-        # itself. Each refusal is logged at startup; see
+        # particle_filter/maps and range_libc/maps (vendored upstream demo
+        # maps) are refused whatever you put here, and so is anything inside
+        # them. So is ~/.ros/racerbot_sim/tracks, which holds generated
+        # simulator *inputs* rather than run output, and so is $HOME itself.
+        # A root inside a git working tree is fine -- a car may commit its
+        # runs. Each refusal is logged at startup; see
         # mapstore._protected_root_reason.
         #
         # Maps saved by the manual workflow (`ros2 run nav2_map_server

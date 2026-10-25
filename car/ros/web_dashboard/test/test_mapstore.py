@@ -16,7 +16,7 @@ Oracles used below, per TEST_QUALITY_STANDARDS.md:
     own saved maps, named at the point of use
   * cited spec -- the Netpbm graymap header format
   * invariant -- properties that must hold for every input, e.g. nothing
-    sanitize_roots returns may sit inside a git working tree
+    sanitize_roots returns may be or sit inside a protected directory
   * closed form -- sizes and counts recomputed in the test
 """
 import os
@@ -326,25 +326,58 @@ def test_a_root_that_does_not_exist_yet_is_kept(tmp_path):
     assert mapstore.sanitize_roots([str(root)]) == [os.path.realpath(str(root))]
 
 
-def test_a_root_inside_a_git_working_tree_is_refused_and_logged(tmp_path):
-    """src/particle_filter/maps holds tracked upstream demo maps. A browser
-    deleting those would surface as a mystery `git status`."""
-    (tmp_path / '.git').mkdir()
-    root = tmp_path / 'src' / 'particle_filter' / 'maps'
+@pytest.mark.parametrize('dot_git', ['dir', 'file'])
+def test_a_run_folder_inside_a_git_working_tree_is_kept(tmp_path, dot_git):
+    """Spec (README, "The protected roots"): a car may commit its runs, as
+    car 2 does in racerbot-ws/data/. A repo's .git is a directory, a
+    worktree's is a file; neither makes the folder unmanageable."""
+    if dot_git == 'dir':
+        (tmp_path / '.git').mkdir()
+    else:
+        (tmp_path / '.git').write_text('gitdir: /elsewhere\n')
+    root = tmp_path / 'data' / 'racerbot_auto'
+    root.mkdir(parents=True)
+    logger = _Logger()
+    assert mapstore.sanitize_roots([str(root)], logger) == [os.path.realpath(str(root))]
+    assert logger.warnings == []
+
+
+@pytest.mark.parametrize('package', ['particle_filter', 'range_libc'])
+def test_the_vendored_demo_maps_are_refused_and_logged(tmp_path, package):
+    """src/particle_filter/maps and src/range_libc/maps hold upstream demo
+    maps, not run output -- refused by name now that being inside a git
+    working tree no longer is a reason."""
+    root = tmp_path / 'src' / package / 'maps'
     root.mkdir(parents=True)
     logger = _Logger()
     assert mapstore.sanitize_roots([str(root)], logger) == []
     assert len(logger.warnings) == 1
-    assert 'git working tree' in logger.warnings[0]
+    assert 'demo maps' in logger.warnings[0]
 
 
-def test_a_git_worktree_whose_dot_git_is_a_file_is_also_refused(tmp_path):
-    """`git worktree add` writes .git as a FILE. Checking for a directory
-    would let a worktree of this repo through."""
-    (tmp_path / '.git').write_text('gitdir: /elsewhere\n')
-    root = tmp_path / 'maps'
-    root.mkdir()
-    assert mapstore.sanitize_roots([str(root)]) == []
+@pytest.mark.parametrize('package', ['particle_filter', 'range_libc'])
+def test_a_folder_inside_the_demo_maps_is_refused_too(tmp_path, package):
+    """Inside, not just equal: the old git-tree rule caught every depth, and
+    the replacement must not be weaker. Boundary on the other side: a
+    sibling whose name merely starts the same way is kept."""
+    inside = tmp_path / 'src' / package / 'maps' / 'levine'
+    inside.mkdir(parents=True)
+    lookalike = tmp_path / 'src' / package / 'maps_backup'
+    lookalike.mkdir()
+    assert mapstore.sanitize_roots([str(inside)]) == []
+    assert mapstore.sanitize_roots([str(lookalike)]) == [os.path.realpath(str(lookalike))]
+
+
+def test_a_run_inside_the_demo_maps_cannot_be_deleted(tmp_path):
+    """The delete-time re-check (deletable) goes through the same rule. A
+    root that slipped past the startup check -- here, a parent of the demo
+    maps -- still cannot have a demo map deleted from under it, even one
+    shaped exactly like a run."""
+    root = tmp_path / 'src' / 'particle_filter'
+    run = _make_run(root, 'maps')
+    ok, reason = mapstore.deletable(run, [str(root)])
+    assert ok is False
+    assert 'demo maps' in reason
 
 
 def test_the_simulator_track_directory_is_refused(tmp_path):
@@ -401,16 +434,23 @@ def test_order_is_preserved(tmp_path):
         os.path.realpath(str(second)), os.path.realpath(str(first))]
 
 
-def test_nothing_returned_is_ever_inside_a_git_tree(tmp_path):
-    """Invariant over a mixed list, rather than one case at a time."""
-    (tmp_path / 'repo' / '.git').mkdir(parents=True)
-    (tmp_path / 'repo' / 'maps').mkdir()
-    (tmp_path / 'plain').mkdir()
-    kept = mapstore.sanitize_roots([
-        str(tmp_path / 'repo' / 'maps'), str(tmp_path / 'plain'), '/', '~'])
-    assert kept
+def test_nothing_returned_is_ever_a_protected_directory(tmp_path):
+    """Invariant over a mixed list, rather than one case at a time. Checked
+    by path components here, not by calling the code under test."""
+    protected = [tmp_path / 'ws' / 'src' / 'particle_filter' / 'maps',
+                 tmp_path / 'ws' / 'src' / 'range_libc' / 'maps' / 'deep',
+                 tmp_path / 'ros' / 'racerbot_sim' / 'tracks']
+    plain = [tmp_path / 'ws' / 'data' / 'racerbot_auto', tmp_path / 'plain']
+    for path in protected + plain:
+        path.mkdir(parents=True)
+    (tmp_path / 'ws' / '.git').mkdir()
+    kept = mapstore.sanitize_roots([str(p) for p in protected + plain] + ['/', '~'])
+    assert kept == [os.path.realpath(str(p)) for p in plain]
     for root in kept:
-        assert not mapstore.in_git_tree(root)
+        parts = root.split(os.sep)
+        pairs = set(zip(parts, parts[1:]))
+        assert not pairs & {('particle_filter', 'maps'), ('range_libc', 'maps'),
+                            ('racerbot_sim', 'tracks')}, root
 
 
 # ---------------------------------------------------------------------------

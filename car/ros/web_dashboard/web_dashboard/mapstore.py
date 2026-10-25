@@ -59,9 +59,12 @@ Same shape as proccontrol.PROTECTED: refused before the configured list is
 consulted, and putting one in `map_roots` does not enable it -- it is logged
 and dropped.
 
-  * Anything inside a git working tree. src/particle_filter/maps/levine.* and
-    src/range_libc/maps/* are tracked upstream files, not run output, and a
-    browser deleting tracked files would show up as a mystery `git status`.
+  * particle_filter/maps and range_libc/maps, and anything inside them.
+    levine.* and friends are upstream demo maps vendored into the workspace,
+    not run output. (Being inside a git working tree is NOT itself a reason:
+    a car may commit its runs, e.g. racerbot-ws/data/, and still want to
+    list and clear them here. A run deleted from a repo shows in `git status`
+    as an ordinary deletion and stays in history.)
   * ~/.ros/racerbot_sim/tracks -- generated *inputs* to the simulator
     (racerbot_sim/tracks.py), consumed via `track_directory`. Deleting one
     breaks the sim rather than freeing a stale result.
@@ -75,11 +78,15 @@ import os
 import re
 import shutil
 
-#: Directory names that are simulator inputs rather than run output. Matched
-#: on the trailing two path components, so it catches the parameter's default
-#: and anyone pointing at the same place by another route.
+#: Directories that hold something other than run output: simulator inputs,
+#: and the upstream demo maps vendored into the workspace. Matched as a run
+#: of whole path components ANYWHERE in the path, so the directory itself and
+#: everything inside it are both caught, wherever the checkout lives and by
+#: whatever route it is reached.
 PROTECTED_TAILS = (
     os.path.join('racerbot_sim', 'tracks'),
+    os.path.join('particle_filter', 'maps'),
+    os.path.join('range_libc', 'maps'),
 )
 
 #: What a run directory can hold, and how to describe it to a person. Order
@@ -186,21 +193,13 @@ def _real(path):
     return os.path.realpath(os.path.abspath(os.path.expanduser(str(path))))
 
 
-def in_git_tree(path):
-    """True if `path` or any ancestor holds a .git entry.
-
-    Checked as an *entry*, not a directory: a git worktree's .git is a file,
-    and a worktree of this repo is exactly the case where a browser deleting
-    tracked maps would be most confusing.
-    """
-    current = _real(path)
-    while True:
-        if os.path.exists(os.path.join(current, '.git')):
-            return True
-        parent = os.path.dirname(current)
-        if parent == current:
-            return False
-        current = parent
+def _in_protected_dir(path):
+    """The PROTECTED_TAILS entry `path` is, or is inside, or '' if none."""
+    padded = _real(path) + os.sep
+    for tail in PROTECTED_TAILS:
+        if os.sep + tail + os.sep in padded:
+            return tail
+    return ''
 
 
 def _too_shallow(path):
@@ -239,13 +238,13 @@ def _protected_root_reason(path):
         return 'it is a top-level system directory'
     if _is_home_or_above(real):
         return 'it is the home directory, or contains it'
-    for tail in PROTECTED_TAILS:
-        if real.endswith(os.sep + tail) or real == tail:
-            return ('it holds generated simulator track inputs, not run '
-                    'output -- deleting one breaks the simulator')
-    if in_git_tree(real):
-        return ('it is inside a git working tree -- those maps are tracked '
-                'files, not run output')
+    tail = _in_protected_dir(real)
+    if tail == PROTECTED_TAILS[0]:
+        return ('it holds generated simulator track inputs, not run '
+                'output -- deleting one breaks the simulator')
+    if tail:
+        return ('it holds the upstream demo maps vendored into the '
+                'workspace, not run output')
     return ''
 
 
