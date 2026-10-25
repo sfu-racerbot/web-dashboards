@@ -811,12 +811,14 @@ That last call cannot succeed unless the directory really is empty. "Something e
 
 `sanitize_roots` drops and logs any configured root that is:
 
-- inside a git working tree — `src/particle_filter/maps/` holds tracked upstream maps
-- `~/.ros/racerbot_sim/tracks` — generated simulator *inputs*, not run output
+- `particle_filter/maps` or `range_libc/maps`, or anything inside them: vendored upstream demo maps
+- `~/.ros/racerbot_sim/tracks` (or anything inside it): generated simulator *inputs*, not run output
 - `$HOME` itself, or an ancestor of it
 - fewer than two components below `/`
 
 Putting one of those in `map_roots` does not enable it.
+
+A root inside a git working tree is allowed, because a car may commit its runs to its repo. Deleting a run there shows up in `git status` as an ordinary deletion, and the run stays in git history.
 
 ### Bounds on the delete path
 
