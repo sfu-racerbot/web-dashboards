@@ -165,6 +165,44 @@ With the car on and its tunnel, `dashboard_node`, `foxglove_bridge` and camera r
 
 **Why this is safe.** The `-origin` hostnames are not open because the challenge skips them: each is locked by its own Access application to the site's service token (step 2), so anyone else gets a 401 or a login page.
 
+## Optional: remote desktop and SSH for people — 👤 Dashboard
+
+Not part of the site. Each car can also publish, through the same tunnel, its desktop in a browser and an SSH login, for team members. Car 2 does (`rd-rb2`, `ssh-rb2`), and so does Car 1 (`rd-rb1`, `ssh-rb1`). The services on the car — x11vnc, noVNC on `:6080`, sshd — are set up from the car's own workspace, not from this repo (Car 1: `tools/systemd/install.sh` in [Racerbot-Car-1-Workspace](https://github.com/sfu-racerbot/Racerbot-Car-1-Workspace), documented in its `docs/web-dashboard.md`).
+
+**These are for people, so their lock is the team login, not the service token.** Never add them to the car's `origins` application: its only policy is Service Auth, which no person can pass. They need their own application.
+
+1. **Zero Trust** > **Access controls** > **Applications** > **Create new application** > **Self-hosted and private**.
+2. Name it `rb2 remote`. **Add public hostname** twice: `rd-rb2` . `sfuracerbot.ca` and `ssh-rb2` . `sfuracerbot.ca`.
+3. **Access policies:** one policy, `team`, **Action: Allow**, **Include: Emails**, the same team addresses as step 3. Or reuse step 3's policy if your account has it as a reusable policy.
+4. **Create**.
+5. **Networking** > **Tunnels** > the car's tunnel > **Routes** > **Add route** > **Published application**, twice:
+
+   | Subdomain | Domain | Service |
+   |---|---|---|
+   | `rd-rb2` | `sfuracerbot.ca` | `http://localhost:6080` (noVNC) |
+   | `ssh-rb2` | `sfuracerbot.ca` | `ssh://localhost:22` (sshd) |
+
+Create the application (1–4) **before** the routes (5), for the same reason as step 2: the car's desktop and login must never be open, not even briefly.
+
+**Working when** (**⌨ Terminal**, any machine):
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://rd-rb2.sfuracerbot.ca/
+```
+
+prints `302` (a redirect to the team login). A `200` means the application is missing that hostname: delete the route until it is fixed. Then `https://rd-rb2.sfuracerbot.ca/vnc.html` in a browser shows the car's screen after you sign in.
+
+**SSH from a laptop** needs `cloudflared` on the laptop, and this in its `~/.ssh/config`:
+
+```
+Host rb2
+    HostName ssh-rb2.sfuracerbot.ca
+    User <the car's user>
+    ProxyCommand cloudflared access ssh --hostname %h
+```
+
+**Working when:** `ssh rb2` opens a browser tab for the team login the first time, then asks for the car's password.
+
 ## Adding a car
 
 For a car `rb3`:
@@ -184,10 +222,13 @@ For a car `rb3`:
 
 Merging deploys it. **Working when:** the landing page lists the new car. The same service token and the same email list cover it; no code changes.
 
+4. **Optional** — [remote desktop and SSH](#optional-remote-desktop-and-ssh-for-people---dashboard), with `rd-rb3` and `ssh-rb3` in a new `rb3 remote` application.
+
 ## Removing access
 
 | To remove | Do |
 |---|---|
 | A person | Remove their email from the `team` policy (step 3). |
 | The Worker's access to the cars | Revoke the service token (step 1's page). Every car origin then refuses the Worker. |
-| A car | Delete its `CARS` entry and merge; then delete its tunnel routes and origin application. |
+| A car | Delete its `CARS` entry and merge; then delete its tunnel routes, its origin application and its remote application. |
+| A car's tunnel token (leaked, or was ever on the car's command line) | The tunnel's page > **Refresh token**, then on the car `sudo car/cloudflared/install.sh` with the new one ([car/README.md step 7](../car/README.md#7-create-the-cars-tunnel-and-install-cloudflared)). |
