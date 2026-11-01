@@ -264,7 +264,6 @@ def plan_layered_save(file_texts, node_name, live_values):
             differs = True
         else:
             differs = abs(float(current) - float(value)) > 1e-9
-
         if differs:
             plan.setdefault(holder_index, {})[key] = value
     return plan
