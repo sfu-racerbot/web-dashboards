@@ -85,7 +85,6 @@ import glob
 import json
 import os
 import queue
-import tempfile
 import threading
 import time
 
@@ -203,31 +202,7 @@ def _decode_parameter_value(value):
     return None
 
 
-def _atomic_write(path, text):
-    """Replace a file's contents without ever leaving a partial one behind.
-
-    A half-written parameter YAML is a node that refuses to launch, and
-    the moment this is most likely to be interrupted (Ctrl+C at the end of
-    a session) is exactly when nobody would notice until the next run.
-    Write a sibling temp file, fsync, then rename -- rename is atomic
-    within a filesystem, so the config is either the old one or the new
-    one at every instant.
-    """
-    directory = os.path.dirname(path) or '.'
-    handle = tempfile.NamedTemporaryFile(
-        'w', dir=directory, prefix='.tuning-', suffix='.yaml', delete=False)
-    try:
-        with handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(handle.name, path)
-    except BaseException:
-        try:
-            os.unlink(handle.name)
-        except OSError:
-            pass
-        raise
+_atomic_write = tuning._atomic_write
 
 
 class _TuningTarget:
@@ -237,9 +212,9 @@ class _TuningTarget:
     above DashboardNode._setup_tuning().
     """
 
-    def __init__(self, node_name, config_path, config_error):
+    def __init__(self, node_name, config_paths, config_error):
         self.node_name = node_name
-        self.config_path = config_path
+        self.config_paths = config_paths
         self.config_error = config_error
         self.get_client = None
         self.set_client = None
@@ -860,11 +835,14 @@ class DashboardNode(Node):
         configs = [str(c) for c in self._string_list('tuning_config_files')]
         for index, node_name in enumerate(names):
             config_ref = configs[index] if index < len(configs) else ''
-            path, path_error = self._resolve_config_path(config_ref)
+            refs = tuning.split_config_refs(config_ref)
+            resolved = [self._resolve_config_path(ref) for ref in refs or ['']]
+            path_error = '; '.join(error for _, error in resolved if error) or None
+            paths = [path for path, _ in resolved] if not path_error else []
             if path_error:
                 self.get_logger().warn(
                     f"live tuning: '{node_name}' can be tuned but not saved -- {path_error}")
-            self._tuning_targets.append(_TuningTarget(node_name, path, path_error))
+            self._tuning_targets.append(_TuningTarget(node_name, paths, path_error))
 
         self.tuning_refresh_timer = self.create_timer(
             self.tuning_refresh_sec, self._tuning_refresh_callback)
@@ -1117,7 +1095,7 @@ class DashboardNode(Node):
         for target in self._tuning_targets:
             if not target.online or not target.spec or not target.values:
                 continue
-            if target.config_path is None:
+            if not target.config_paths:
                 skipped.append(f'{target.node_name} ({target.config_error})')
                 continue
             tunable_now = {
@@ -1125,24 +1103,18 @@ class DashboardNode(Node):
                 for param in target.spec if param['name'] in target.values
             }
             try:
-                with open(target.config_path) as handle:
-                    original = handle.read()
-                pending = tuning.values_needing_save(
-                    original, target.node_name, tunable_now)
-                if not pending:
-                    continue
-                updated, changed, added = tuning.update_yaml_values(
-                    original, target.node_name, pending)
-                _atomic_write(target.config_path, updated)
+                saved = tuning.save_layered(
+                    target.config_paths, target.node_name, tunable_now)
+                for path, count in saved:
+                    written.append(f'{path} ({count} value(s))')
+                    self.get_logger().info(
+                        f"live tuning: saved {count} value(s) to '{path}'")
             except (OSError, ValueError) as exc:
                 skipped.append(f'{target.node_name} ({exc})')
+                paths = ', '.join(target.config_paths)
                 self.get_logger().error(
-                    f"live tuning: could not save '{target.config_path}': {exc}")
+                    f"live tuning: could not save '{paths}': {exc}")
                 continue
-            written.append(f'{target.config_path} ({len(changed) + len(added)} value(s))')
-            self.get_logger().info(
-                f"live tuning: saved {len(changed) + len(added)} value(s) to "
-                f"'{target.config_path}'")
 
         if written:
             detail = 'Saved. Review with `git diff` before committing.'
@@ -1207,8 +1179,8 @@ class DashboardNode(Node):
                 'driving': bool(self._active_controller) and (
                     target.node_name == self._active_controller),
                 'error': target.spec_error,
-                'savable': target.config_path is not None and self.tuning_allow_save,
-                'config_path': target.config_path or '',
+                'savable': bool(target.config_paths) and self.tuning_allow_save,
+                'config_path': '|'.join(target.config_paths),
                 'params': [
                     dict(param,
                          value=target.values.get(param['name']),

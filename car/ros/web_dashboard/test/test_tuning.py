@@ -244,3 +244,173 @@ def test_values_needing_save_treats_bools_as_bools():
     pending = tuning.values_needing_save(
         SAMPLE_YAML, 'some_node', {'enable_thing': False})
     assert pending == {'enable_thing': False}
+
+
+# ---------------------------------------------------------------------------
+# layered config references and save planning
+# ---------------------------------------------------------------------------
+
+LAYERED_SHARED = """\
+node_x:
+  ros__parameters:
+    shared_only: 1.0
+    both: 2.0
+"""
+
+LAYERED_OVERLAY = """\
+node_x:
+  ros__parameters:
+    both: 3.0
+    overlay_only: 4.0
+"""
+
+
+def test_split_config_refs():
+    assert tuning.split_config_refs('a/x.yaml') == ['a/x.yaml']
+    assert tuning.split_config_refs('a/x.yaml|b/y.yaml') == [
+        'a/x.yaml', 'b/y.yaml']
+    assert tuning.split_config_refs(' a/x.yaml | b/y.yaml ') == [
+        'a/x.yaml', 'b/y.yaml']
+    assert tuning.split_config_refs('|a/x.yaml||b/y.yaml|') == [
+        'a/x.yaml', 'b/y.yaml']
+    assert tuning.split_config_refs('') == []
+
+
+def test_layered_save_single_file_matches_today():
+    text = """\
+node_x:
+  ros__parameters:
+    max_speed: 2.5
+    min_speed: 1.0
+"""
+    live = {'max_speed': 3.5, 'min_speed': 1.0}
+    assert tuning.plan_layered_save([text], 'node_x', live) == {
+        0: tuning.values_needing_save(text, 'node_x', live)}
+    assert tuning.plan_layered_save([text], 'node_x', live) == {
+        0: {'max_speed': 3.5}}
+    assert tuning.plan_layered_save(
+        [LAYERED_SHARED], 'node_x', {'shared_only': 1.0, 'both': 2.0}) == {}
+
+
+def test_layered_save_key_in_overlay_goes_to_overlay():
+    assert tuning.plan_layered_save(
+        [LAYERED_SHARED, LAYERED_OVERLAY], 'node_x', {'both': 5.0}) == {
+            1: {'both': 5.0}}
+
+
+def test_layered_save_compares_with_effective_value():
+    files = [LAYERED_SHARED, LAYERED_OVERLAY]
+    assert tuning.plan_layered_save(files, 'node_x', {'both': 3.0}) == {}
+    assert tuning.plan_layered_save(files, 'node_x', {'both': 2.0}) == {
+        1: {'both': 2.0}}
+
+
+def test_layered_save_key_in_shared_only_goes_to_shared():
+    assert tuning.plan_layered_save(
+        [LAYERED_SHARED, LAYERED_OVERLAY], 'node_x', {'shared_only': 5.0}) == {
+            0: {'shared_only': 5.0}}
+
+
+def test_layered_save_key_in_neither_goes_to_first():
+    assert tuning.plan_layered_save(
+        [LAYERED_SHARED, LAYERED_OVERLAY], 'node_x', {'brand_new': 6.0}) == {
+            0: {'brand_new': 6.0}}
+
+
+def test_layered_save_file_without_the_node_block_is_skipped():
+    absent = 'other_node:\n  ros__parameters:\n    both: 99.0\n'
+    assert tuning.plan_layered_save(
+        [LAYERED_SHARED, absent], 'node_x', {'both': 4.0}) == {
+            0: {'both': 4.0}}
+    assert tuning.plan_layered_save(
+        [absent, LAYERED_OVERLAY], 'node_x', {'both': 5.0}) == {
+            1: {'both': 5.0}}
+
+
+def test_layered_save_three_files_last_holder_wins():
+    middle = """\
+node_x:
+  ros__parameters:
+    both: 4.0
+"""
+    last = """\
+node_x:
+  ros__parameters:
+    both: 7.0
+"""
+    assert tuning.plan_layered_save(
+        [LAYERED_SHARED, middle, last], 'node_x', {'both': 5.0}) == {
+            2: {'both': 5.0}}
+
+
+def test_layered_save_rejects_a_malformed_file():
+    malformed = 'node_x: [not valid'
+    with pytest.raises(ValueError, match='file index 1'):
+        tuning.plan_layered_save(
+            [LAYERED_SHARED, malformed], 'node_x', {'both': 5.0})
+
+
+def test_save_layered_writes_each_value_to_its_holder(tmp_path):
+    shared = tmp_path / 'shared.yaml'
+    overlay = tmp_path / 'overlay.yaml'
+    shared_text = """\
+node_x:
+  ros__parameters:
+    shared_only: 1.0  # shared comment
+    both: 2.0
+other_node:
+  ros__parameters:
+    untouched: true
+"""
+    overlay_text = """\
+node_x:
+  ros__parameters:
+    both: 3.0  # overlay comment
+    overlay_only: 4.0
+"""
+    shared.write_text(shared_text)
+    overlay.write_text(overlay_text)
+    result = tuning.save_layered(
+        [str(shared), str(overlay)], 'node_x',
+        {'shared_only': 5.0, 'both': 6.0, 'overlay_only': 7.0})
+    assert result == [(str(shared), 1), (str(overlay), 2)]
+    assert shared.read_text() == """\
+node_x:
+  ros__parameters:
+    shared_only: 5.0  # shared comment
+    both: 2.0
+other_node:
+  ros__parameters:
+    untouched: true
+"""
+    assert overlay.read_text() == """\
+node_x:
+  ros__parameters:
+    both: 6.0  # overlay comment
+    overlay_only: 7.0
+"""
+
+
+def test_save_layered_writes_nothing_when_a_file_is_unreadable(tmp_path):
+    shared = tmp_path / 'shared.yaml'
+    missing = tmp_path / 'missing.yaml'
+    original = LAYERED_SHARED
+    shared.write_text(original)
+    with pytest.raises(OSError):
+        tuning.save_layered(
+            [str(shared), str(missing)], 'node_x', {'both': 5.0})
+    assert shared.read_text() == original
+
+
+def test_save_layered_writes_nothing_when_a_file_does_not_parse(tmp_path):
+    shared = tmp_path / 'shared.yaml'
+    overlay = tmp_path / 'overlay.yaml'
+    shared_text = LAYERED_SHARED
+    malformed = 'node_x: [not valid'
+    shared.write_text(shared_text)
+    overlay.write_text(malformed)
+    with pytest.raises(ValueError):
+        tuning.save_layered(
+            [str(shared), str(overlay)], 'node_x', {'both': 5.0})
+    assert shared.read_text() == shared_text
+    assert overlay.read_text() == malformed

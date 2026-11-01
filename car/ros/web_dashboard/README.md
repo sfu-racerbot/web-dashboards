@@ -567,7 +567,7 @@ button and cursor hide after `CONTROLS_IDLE_MS` of no input
 | `laser_offset_x` / `laser_offset_y` | `0.0` / `0.0` | The car's LIDAR mounting offset from `base_link`; set it in the car YAML (car 2: `0.26`, its [hardware-reference.md](https://github.com/sfu-racerbot/Racerbot-Car-2-Workspace/blob/main/docs/hardware-reference.md)) |
 | `enable_tuning` | `true` | Whether live tuning exists at all; `false` never creates the service clients |
 | `tuning_nodes` | unset | The only nodes ever probed or written to (car 2: `[pure_pursuit_node, gap_follow_node]`) |
-| `tuning_config_files` | unset | Parallel to `tuning_nodes`: `<package>/<path>` that "save" writes back to |
+| `tuning_config_files` | unset | Parallel to `tuning_nodes`: one `<package>/<path>` or several joined with `|` in load order, such as `gap_follow/config/gap_follow.yaml|racerbot_car/cars/rb1/tuning/gap_follow.yaml`; save compares against the last file holding each key and writes it back there |
 | `tuning_allow_save` | `true` | `false` allows live tuning but forbids writing to disk |
 | `tuning_refresh_sec` / `tuning_request_rate_hz` / `tuning_service_timeout_sec` | `2.0` / `20.0` / `3.0` | Value refresh period, how fast a released slider reaches the car, and when to give up on a service call |
 
