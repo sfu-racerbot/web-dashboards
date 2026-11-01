@@ -20,7 +20,9 @@ the browser gets told why.
 """
 
 import json
+import os
 import re
+import tempfile
 
 # Spec versions this dashboard knows how to render. A node advertising
 # anything else is shown as present-but-unreadable rather than silently
@@ -227,25 +229,43 @@ def update_yaml_values(text, node_name, values):
     return ''.join(lines), changed, added
 
 
-def split_config_refs(element):
+def split_config_refs(element: str) -> list[str]:
     """Split a tuning config parameter into trimmed, non-empty references."""
     return [part.strip() for part in str(element).split('|') if part.strip()]
 
 
-def _node_parameters(file_text, node_name):
+def _parse_yaml(text, source):
     import yaml
 
     try:
-        document = yaml.safe_load(file_text) or {}
+        return yaml.safe_load(text) or {}
+    except yaml.YAMLError as exc:
+        raise ValueError(f'{source} is not valid YAML: {exc}') from exc
+
+
+def _node_parameters(file_text, node_name, source):
+    document = _parse_yaml(file_text, source)
+    try:
         parameters = document[node_name]['ros__parameters']
-    except (KeyError, TypeError, yaml.YAMLError):
+    except (KeyError, TypeError):
         return {}
     return parameters if isinstance(parameters, dict) else {}
 
 
-def plan_layered_save(file_texts, node_name, live_values):
-    """Plan live values against the effective values in layered YAML files."""
-    holders = [_node_parameters(text, node_name) for text in file_texts]
+def _values_differ(current, value, tolerance=1e-9):
+    if isinstance(value, bool) or isinstance(current, bool):
+        return bool(current) != bool(value)
+    if not isinstance(current, (int, float)):
+        return True
+    return abs(float(current) - float(value)) > tolerance
+
+
+def plan_layered_save(file_texts: list[str], node_name: str, live_values: dict) -> dict[int, dict]:
+    """Plan values against the effective value in layered YAML files."""
+    holders = [
+        _node_parameters(text, node_name, f'file index {index}')
+        for index, text in enumerate(file_texts)
+    ]
     plan = {}
     for key, value in live_values.items():
         holder_index = None
@@ -256,17 +276,44 @@ def plan_layered_save(file_texts, node_name, live_values):
                 current = parameters[key]
         if holder_index is None:
             plan.setdefault(0, {})[key] = value
-            continue
-        differs = False
-        if isinstance(value, bool) or isinstance(current, bool):
-            differs = bool(current) != bool(value)
-        elif not isinstance(current, (int, float)):
-            differs = True
-        else:
-            differs = abs(float(current) - float(value)) > 1e-9
-        if differs:
+        elif _values_differ(current, value):
             plan.setdefault(holder_index, {})[key] = value
     return plan
+
+
+def _atomic_write(path, text):
+    directory = os.path.dirname(path) or '.'
+    handle = tempfile.NamedTemporaryFile(
+        'w', dir=directory, prefix='.tuning-', suffix='.yaml', delete=False)
+    try:
+        with handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(handle.name, path)
+    except BaseException:
+        try:
+            os.unlink(handle.name)
+        except OSError:
+            pass
+        raise
+
+
+def save_layered(paths: list[str], node_name: str, live_values: dict) -> list[tuple[str, int]]:
+    """Read, plan, and atomically write changes across layered config files."""
+    originals = []
+    for path in paths:
+        with open(path) as handle:
+            originals.append(handle.read())
+    plan = plan_layered_save(originals, node_name, live_values)
+    updates = []
+    for index, values in plan.items():
+        updated, changed, added = update_yaml_values(
+            originals[index], node_name, values)
+        updates.append((paths[index], updated, len(changed) + len(added)))
+    for path, updated, _ in updates:
+        _atomic_write(path, updated)
+    return [(path, count) for path, _, count in updates]
 
 
 def values_needing_save(file_text, node_name, live_values, tolerance=1e-9):
@@ -288,15 +335,6 @@ def values_needing_save(file_text, node_name, live_values, tolerance=1e-9):
 
     pending = {}
     for key, value in live_values.items():
-        if key not in on_disk:
-            pending[key] = value
-            continue
-        current = on_disk[key]
-        if isinstance(value, bool) or isinstance(current, bool):
-            if bool(current) != bool(value):
-                pending[key] = value
-        elif not isinstance(current, (int, float)):
-            pending[key] = value
-        elif abs(float(current) - float(value)) > tolerance:
+        if key not in on_disk or _values_differ(on_disk[key], value, tolerance):
             pending[key] = value
     return pending

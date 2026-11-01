@@ -85,7 +85,6 @@ import glob
 import json
 import os
 import queue
-import tempfile
 import threading
 import time
 
@@ -203,31 +202,7 @@ def _decode_parameter_value(value):
     return None
 
 
-def _atomic_write(path, text):
-    """Replace a file's contents without ever leaving a partial one behind.
-
-    A half-written parameter YAML is a node that refuses to launch, and
-    the moment this is most likely to be interrupted (Ctrl+C at the end of
-    a session) is exactly when nobody would notice until the next run.
-    Write a sibling temp file, fsync, then rename -- rename is atomic
-    within a filesystem, so the config is either the old one or the new
-    one at every instant.
-    """
-    directory = os.path.dirname(path) or '.'
-    handle = tempfile.NamedTemporaryFile(
-        'w', dir=directory, prefix='.tuning-', suffix='.yaml', delete=False)
-    try:
-        with handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(handle.name, path)
-    except BaseException:
-        try:
-            os.unlink(handle.name)
-        except OSError:
-            pass
-        raise
+_atomic_write = tuning._atomic_write
 
 
 class _TuningTarget:
@@ -1128,25 +1103,17 @@ class DashboardNode(Node):
                 for param in target.spec if param['name'] in target.values
             }
             try:
-                originals = []
-                for path in target.config_paths:
-                    with open(path) as handle:
-                        originals.append(handle.read())
-                plan = tuning.plan_layered_save(
-                    originals, target.node_name, tunable_now)
-                for index, pending in plan.items():
-                    updated, changed, added = tuning.update_yaml_values(
-                        originals[index], target.node_name, pending)
-                    _atomic_write(target.config_paths[index], updated)
-                    count = len(changed) + len(added)
-                    written.append(f'{target.config_paths[index]} ({count} value(s))')
+                saved = tuning.save_layered(
+                    target.config_paths, target.node_name, tunable_now)
+                for path, count in saved:
+                    written.append(f'{path} ({count} value(s))')
                     self.get_logger().info(
-                        f"live tuning: saved {count} value(s) to "
-                        f"'{target.config_paths[index]}'")
+                        f"live tuning: saved {count} value(s) to '{path}'")
             except (OSError, ValueError) as exc:
                 skipped.append(f'{target.node_name} ({exc})')
+                paths = ', '.join(target.config_paths)
                 self.get_logger().error(
-                    f"live tuning: could not save '{target.config_paths}': {exc}")
+                    f"live tuning: could not save '{paths}': {exc}")
                 continue
 
         if written:
