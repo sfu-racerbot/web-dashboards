@@ -227,6 +227,48 @@ def update_yaml_values(text, node_name, values):
     return ''.join(lines), changed, added
 
 
+def split_config_refs(element):
+    """Split a tuning config parameter into trimmed, non-empty references."""
+    return [part.strip() for part in str(element).split('|') if part.strip()]
+
+
+def _node_parameters(file_text, node_name):
+    import yaml
+
+    try:
+        document = yaml.safe_load(file_text) or {}
+        parameters = document[node_name]['ros__parameters']
+    except (KeyError, TypeError, yaml.YAMLError):
+        return {}
+    return parameters if isinstance(parameters, dict) else {}
+
+
+def plan_layered_save(file_texts, node_name, live_values):
+    """Plan live values against the effective values in layered YAML files."""
+    holders = [_node_parameters(text, node_name) for text in file_texts]
+    plan = {}
+    for key, value in live_values.items():
+        holder_index = None
+        current = None
+        for index, parameters in enumerate(holders):
+            if key in parameters:
+                holder_index = index
+                current = parameters[key]
+        if holder_index is None:
+            plan.setdefault(0, {})[key] = value
+            continue
+        differs = False
+        if isinstance(value, bool) or isinstance(current, bool):
+            differs = bool(current) != bool(value)
+        elif not isinstance(current, (int, float)):
+            differs = True
+        else:
+            differs = abs(float(current) - float(value)) > 1e-9
+        if differs:
+            plan.setdefault(holder_index, {})[key] = value
+    return plan
+
+
 def values_needing_save(file_text, node_name, live_values, tolerance=1e-9):
     """Which of the car's live values actually differ from the file's.
 
