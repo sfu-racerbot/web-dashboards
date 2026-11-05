@@ -34,6 +34,14 @@ export interface Env {
   BRIDGE_TRACKING?: string;
   /** "1" only in .dev.vars: accept requests with no Access identity as dev@localhost. */
   ALLOW_ANONYMOUS_DEV?: string;
+  /** OnePortal's Ed25519 public key, 32 bytes base64url. Passes are checked with it. See oneportal.ts. */
+  ONEPORTAL_PASS_PUBLIC_KEY?: string;
+  /** Worker secret: signs the 15-minute op_<car> cookie. Any long random string. */
+  ONEPORTAL_COOKIE_SECRET?: string;
+  /** "1": a OnePortal pass or cookie is required for every car route. Otherwise Access alone still works (staged rollout). */
+  REQUIRE_ONEPORTAL?: string;
+  /** Where OnePortal is, for the refresh redirect. Default https://oneportal.sighton.ca. */
+  ONEPORTAL_ORIGIN?: string;
 }
 
 /** The dashboard_node WebSocket path on the car (dashboard_node.py make_app: r'/ws'). */
