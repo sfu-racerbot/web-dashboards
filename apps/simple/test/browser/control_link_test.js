@@ -69,12 +69,15 @@ function makeClock() {
 // --- a DOM stub that remembers elements by id ----------------------------------
 
 function stubElement() {
+  const listeners = {};
   const el = {
     style: {}, dataset: {}, children: [], textContent: '', innerHTML: '', title: '',
     className: '', checked: false, value: '', disabled: false, hidden: false,
     width: 800, height: 600,
     classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
-    addEventListener() {}, removeEventListener() {},
+    addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
+    removeEventListener() {},
+    emit(type) { (listeners[type] || []).forEach((fn) => fn({})); },
     appendChild(c) { this.children.push(c); return c; },
     setAttribute() {}, removeAttribute() {}, getAttribute() { return null; },
     querySelector() { return null; }, querySelectorAll() { return []; },
@@ -82,6 +85,10 @@ function stubElement() {
     focus() {}, blur() {},
     setPointerCapture() {}, releasePointerCapture() {}, hasPointerCapture() { return false; },
   };
+  Object.defineProperty(el, 'innerHTML', {
+    get() { return ''; },
+    set() { this.children = []; },
+  });
   el.getContext = () => new Proxy({
     canvas: el,
     createImageData: (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
@@ -90,12 +97,13 @@ function stubElement() {
   return el;
 }
 
-function loadDashboard(location) {
+function loadDashboard(location, options = {}) {
   const clock = makeClock();
   const sockets = [];
   const warnings = [];
   const docListeners = {};
   const elements = new Map();
+  const requests = [];
 
   class FakeWebSocket {
     constructor(url) {
@@ -134,6 +142,11 @@ function loadDashboard(location) {
     document,
     WebSocket: FakeWebSocket,
     location,
+    fetch(url, init) {
+      requests.push({ url, init });
+      if (options.fetch) return options.fetch(url, init);
+      return Promise.resolve({ ok: true, json: async () => ({ car: 'rb2', role: 'control', via: 'oneportal' }) });
+    },
     URLSearchParams,
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     performance: { now: () => Date.now() },
@@ -151,7 +164,7 @@ function loadDashboard(location) {
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(DASHBOARD_JS, 'utf8'), sandbox, { filename: 'dashboard.js' });
   return {
-    sandbox, clock, sockets, warnings, el: (id) => document.getElementById(id),
+    sandbox, clock, sockets, warnings, requests, el: (id) => document.getElementById(id),
     hide() { document.visibilityState = 'hidden'; (docListeners.visibilitychange || []).forEach((fn) => fn()); },
   };
 }
@@ -176,6 +189,10 @@ function eq(name, actual, expected) {
 const SITE = { protocol: 'https:', host: 'dashboard.sfuracerbot.ca', hostname: 'dashboard.sfuracerbot.ca',
   pathname: '/rb2/simple/', search: '' };
 
+const settleAccess = () => new Promise((resolve) => setImmediate(resolve));
+module.exports = { loadDashboard, SITE, settleAccess };
+
+async function main() {
 // ---------------------------------------------------------------------------
 console.log('endpoints come from the page, never from anything it is told');
 {
@@ -262,6 +279,7 @@ console.log('\ntelemetry at load, and nothing else');
 console.log('\nevery write goes over the control link');
 {
   const t = loadDashboard(SITE);
+  await settleAccess();
   const telemetry = t.sockets[0];
   telemetry.open();
   const writes = t.sandbox.window.__writeActions;
@@ -298,6 +316,7 @@ console.log('\nevery write goes over the control link');
 console.log('\narming never outlives attention');
 {
   const t = loadDashboard(SITE);
+  await settleAccess();
   t.sockets[0].open();
   const writes = t.sandbox.window.__writeActions;
   writes.sendTuningControl({ action: 'arm', armed: true });
@@ -337,6 +356,7 @@ console.log('\narming never outlives attention');
 console.log('\nthe control link cannot corrupt the telemetry stream');
 {
   const t = loadDashboard(SITE);
+  await settleAccess();
   const telemetry = t.sockets[0];
   telemetry.open();
   t.sandbox.window.__writeActions.sendStopwatchControl('reset');
@@ -389,3 +409,6 @@ console.log('\nthe link-state row');
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
 process.exit(failures === 0 ? 0 : 1);
+}
+
+if (require.main === module) main().catch((err) => { console.error(err); process.exit(1); });
