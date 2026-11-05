@@ -580,6 +580,7 @@
       telemetry: `${scheme}://${loc.host}${base}/ws`,
       control: `${scheme}://${loc.host}${base}/control`,
       camera: `${base}/camera`,
+      access: `${base}/access`,
     };
     if (isLocalDevOrigin(loc)) {
       let params = null;
@@ -615,6 +616,23 @@
   window.__protocolVerdict = protocolVerdict;
 
   const endpoints = resolveEndpoints(location);
+  let accessRole = 'view';
+  Object.defineProperty(window, '__accessRole', { get: () => accessRole });
+
+  async function loadAccessRole() {
+    try {
+      const response = await fetch(endpoints.access, {
+        credentials: 'same-origin', cache: 'no-store',
+      });
+      if (!response.ok) return;
+      const access = await response.json();
+      if (access && access.car === endpoints.car && access.role === 'control') {
+        accessRole = 'control';
+      }
+    } catch (err) {
+      // Missing credentials, invalid JSON and network failures stay view-only.
+    }
+  }
 
   // ---------------------------------------------------------------------
   // WebSocket connection, with automatic reconnect -- a dropped WiFi link
@@ -4130,6 +4148,7 @@
   // Go
   // ---------------------------------------------------------------------
   resizeCanvasIfNeeded();
+  loadAccessRole();
   renderLinkDetail();
   connect();
   render();
