@@ -521,6 +521,18 @@ html, body {
 }
 
 #relay-text.link-bad { color: var(--bad); }
+.control-text.link-bad { color: var(--bad); }
+
+#view-only-badge {
+  margin-left: auto;
+  border: 1px solid var(--ink-faint);
+  padding: 1px 5px;
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: var(--fs-small);
+}
+
+#view-only-badge[hidden] { display: none; }
 
 .control-text {
   flex: none;
