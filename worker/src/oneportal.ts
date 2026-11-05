@@ -133,14 +133,16 @@ export function setCookieHeader(car: string, value: string): string {
   return `${cookieName(car)}=${value}; Path=/${car}/; Max-Age=${COOKIE_TTL_MS / 1000}; HttpOnly; Secure; SameSite=Lax`;
 }
 
-export function readCookie(headers: Headers, name: string): string | null {
+/** Every value of the named cookie, in header order (at most 4). */
+export function readCookies(headers: Headers, name: string): string[] {
   const raw = headers.get("Cookie");
-  if (!raw) return null;
+  if (!raw) return [];
+  const out: string[] = [];
   for (const part of raw.split(";")) {
     const i = part.indexOf("=");
-    if (i > 0 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
+    if (i > 0 && part.slice(0, i).trim() === name) out.push(part.slice(i + 1).trim());
   }
-  return null;
+  return out.slice(0, 4);
 }
 
 /** The cookie's grant if its MAC, car, person and expiry all check out; otherwise null. */

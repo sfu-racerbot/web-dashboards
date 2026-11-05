@@ -149,6 +149,22 @@ describe("gate", () => {
       .toEqual({ pass: true, role: "view", via: "oneportal" });
   });
 
+  it("finds the real cookie behind a stray one of the same name", async () => {
+    const Cookie = `op_rb1=junk.junk; ${await cookieFor("control")}`;
+    expect(await gate(req("/rb1/control", { Cookie }), ENV, route("/rb1/control"), "a@sfu.ca", NOW)).toEqual({ pass: true, role: "control", via: "oneportal" });
+  });
+
+  it("treats any REQUIRE_ONEPORTAL value but unset, empty or 0 as required", async () => {
+    for (const v of ["1", "true", "yes", " 1 "]) {
+      const r = await gate(req("/rb1/control"), { ...ENV, REQUIRE_ONEPORTAL: v }, route("/rb1/control"), "a@sfu.ca", NOW);
+      expect(r.pass, v).toBe(false);
+    }
+    for (const v of [undefined, "", "0"]) {
+      const r = await gate(req("/rb1/control"), { ...ENV, REQUIRE_ONEPORTAL: v }, route("/rb1/control"), "a@sfu.ca", NOW);
+      expect(r.pass, String(v)).toBe(true);
+    }
+  });
+
   it("fails closed when OnePortal is required but its key or secret is missing", async () => {
     for (const env of [{ REQUIRE_ONEPORTAL: "1" }, { ...ENV, ONEPORTAL_COOKIE_SECRET: "" }, { ...ENV, ONEPORTAL_PASS_PUBLIC_KEY: undefined }]) {
       const r = await gate(req("/rb1/simple/"), env, route("/rb1/simple/"), "a@sfu.ca", NOW);

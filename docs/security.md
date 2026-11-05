@@ -42,9 +42,11 @@ Per-person, per-car permissions live in OnePortal (`https://oneportal.sighton.ca
    - So a permission change in OnePortal applies within 15 minutes.
 4. **`/control` and `/bridge` need the control role.** The bridge counts as a write path because Lichtblick can set parameters and call services through it. A viewer gets `403 You can view this car but not change it`. The simple page asks `/<car>/access` for its role and hides the write controls for viewers. Hiding them is only for clarity; the Worker's refusal is the real lock.
 5. **`REQUIRE_ONEPORTAL`** is a Worker variable set on the Worker, not in `wrangler.jsonc`:
-   - `"1"` makes OnePortal the only way in. `/` redirects to OnePortal, and `/api/cars` answers `403`.
+   - `"1"` (in fact any value but unset, empty or `"0"`, so a typo fails closed) makes OnePortal the only way in. `/` redirects to OnePortal, and `/api/cars` answers `403`.
    - Unset, Access alone still gives full access, as before. This exists for the staged rollout only.
    - Required but the key or secret missing: everything answers `500`. It fails closed.
+
+The raw asset paths (`/index.html`, `/simple/…`, `/advanced/…`) go through the Worker too (`run_worker_first` in `wrangler.jsonc`), so nothing is served past the gate.
 
 The browser's `Cookie` header is stripped before anything reaches the car (section 3), so the `op_<car>` cookie never leaves the Worker.
 

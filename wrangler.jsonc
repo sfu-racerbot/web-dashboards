@@ -29,6 +29,12 @@
     // them. "none" stops the asset router from redirecting /x/index.html to
     // /x/ behind the Worker's back (which would lose the /<car> prefix).
     "html_handling": "none",
+    // The raw asset paths (/index.html, /simple/..., /advanced/...) would
+    // otherwise be served before the Worker runs, past the OnePortal gate.
+    // With these, the Worker answers them: /index.html is the landing page
+    // (a redirect to OnePortal when it is required), the rest is 404. The
+    // per-car pages fetch their files through env.ASSETS after the gate.
+    "run_worker_first": ["/index.html", "/simple/*", "/advanced/*"],
     "not_found_handling": "none"
   },
 

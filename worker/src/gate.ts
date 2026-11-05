@@ -3,7 +3,7 @@
 // reaches a car; oneportal.ts holds the pass and cookie formats.
 
 import {
-  DEFAULT_ONEPORTAL_ORIGIN, PASS_PARAM, cookieName, makeCookie, readCookie, refreshUrl,
+  DEFAULT_ONEPORTAL_ORIGIN, PASS_PARAM, cookieName, makeCookie, readCookies, refreshUrl,
   setCookieHeader, verifyCookie, verifyPass, withoutPass, type DashboardRole,
 } from "./oneportal";
 import type { Route } from "./routes";
@@ -46,8 +46,10 @@ function redirect(location: string, extra: Record<string, string> = {}): Respons
   return new Response(null, { status: 302, headers: { Location: location, ...NO_STORE, "Referrer-Policy": "no-referrer", ...extra } });
 }
 
+/** Fail closed: any value but unset, "" or "0" means required, so a typo ("true", "yes") never opens the old path. */
 export function oneportalRequired(env: GateEnv): boolean {
-  return env.REQUIRE_ONEPORTAL === "1";
+  const v = (env.REQUIRE_ONEPORTAL ?? "").trim();
+  return v !== "" && v !== "0";
 }
 
 export function oneportalOrigin(env: GateEnv): string {
@@ -100,8 +102,14 @@ export async function gate(request: Request, env: GateEnv, route: CarRoute, user
     return { pass: false, response: redirect(withoutPass(url), { "Set-Cookie": setCookieHeader(car, cookie.value) }) };
   }
 
-  const value = readCookie(request.headers, cookieName(car));
-  const grant = value && user ? await verifyCookie(value, { secret: secret!, car, user, now }) : null;
+  // Every op_<car> value is tried: a stray cookie of the same name (another path or subdomain) cannot shadow the real one.
+  let grant = null;
+  if (user) {
+    for (const value of readCookies(request.headers, cookieName(car))) {
+      grant = await verifyCookie(value, { secret: secret!, car, user, now });
+      if (grant) break;
+    }
+  }
   if (grant) return { pass: true, role: grant.role, via: "oneportal" };
 
   if (!required) return { pass: true, role: "control", via: "access-only" };
