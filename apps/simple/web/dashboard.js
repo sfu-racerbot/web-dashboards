@@ -580,6 +580,7 @@
       telemetry: `${scheme}://${loc.host}${base}/ws`,
       control: `${scheme}://${loc.host}${base}/control`,
       camera: `${base}/camera`,
+      access: `${base}/access`,
     };
     if (isLocalDevOrigin(loc)) {
       let params = null;
@@ -615,6 +616,44 @@
   window.__protocolVerdict = protocolVerdict;
 
   const endpoints = resolveEndpoints(location);
+  let accessRole = 'view';
+  const VIEW_ONLY_MESSAGE = 'You can view this car but not change it';
+  const writeTitles = new WeakMap();
+  Object.defineProperty(window, '__accessRole', { get: () => accessRole });
+
+  function applyAccessRole() {
+    const viewOnly = accessRole !== 'control';
+    const badge = document.getElementById('view-only-badge');
+    if (badge) badge.hidden = !viewOnly;
+    [stopwatchToggle, stopwatchReset, tuningArm, mapResetSlamBtn].forEach((el) => {
+      if (!el) return;
+      el.disabled = viewOnly;
+      el.title = viewOnly ? VIEW_ONLY_MESSAGE : '';
+    });
+    updateTuningEnabled();
+    renderSavedMaps();
+    renderProcesses();
+  }
+
+  async function loadAccessRole() {
+    accessRole = 'view';
+    applyAccessRole();
+    let role = 'view';
+    try {
+      const response = await fetch(endpoints.access, {
+        credentials: 'same-origin', cache: 'no-store',
+      });
+      if (response.ok) {
+        const access = await response.json();
+        if (access && access.car === endpoints.car && access.role === 'control') role = 'control';
+      }
+    } catch (err) {
+      // Missing credentials, invalid JSON and network failures stay view-only.
+    }
+    accessRole = role;
+    applyAccessRole();
+    return role;
+  }
 
   // ---------------------------------------------------------------------
   // WebSocket connection, with automatic reconnect -- a dropped WiFi link
@@ -688,7 +727,7 @@
   }
 
   function connectControl() {
-    if (control) return;
+    if (accessRole !== 'control' || control) return;
     const socket = new WebSocket(endpoints.control);
     control = socket;
     socket.binaryType = 'arraybuffer';
@@ -703,7 +742,7 @@
       onControlMessage(event);
     };
     socket.onerror = () => socket.close();
-    socket.onclose = () => {
+    socket.onclose = (event = {}) => {
       // A newer link already replaced this one (closed for idleness, then a
       // write opened another before this close event landed): leave it be.
       if (control !== null && control !== socket) return;
@@ -715,11 +754,30 @@
       // connection's arm state the moment it closes, so anything else here
       // would be the UI claiming an authority it no longer has.
       setTuningArmed(false);
+      if ([1008, 4003, 4401, 4403].includes(event.code)
+          || /refus|forbidden|not change|view.only|unauthori/i.test(event.reason || '')) {
+        showControlRefusal();
+      } else if (event.code === 1006) {
+        // Browsers hide the HTTP 403 from a refused WebSocket handshake.
+        // Recheck access to distinguish that refusal from a dropped link.
+        loadAccessRole().then((role) => {
+          if (role === 'view') showControlRefusal();
+        });
+      }
     };
+  }
+
+  function showControlRefusal() {
+    accessRole = 'view';
+    applyAccessRole();
+    setControlLinkText(VIEW_ONLY_MESSAGE, false);
+    controlText.className = 'control-text link-bad';
+    controlText.title = VIEW_ONLY_MESSAGE;
   }
 
   /** Send one write action over the control link, opening it if needed. */
   function sendControl(message) {
+    if (accessRole !== 'control') return;
     touchControl();
     if (control && control.readyState === WebSocket.OPEN) {
       control.send(JSON.stringify(message));
@@ -3231,10 +3289,10 @@
       row.appendChild(cited);
     }
 
-    if (!plan.deletable) {
+    if (!plan.deletable || accessRole !== 'control') {
       const why = document.createElement('div');
       why.className = 'map-reason';
-      why.textContent = plan.reason;
+      why.textContent = plan.reason || VIEW_ONLY_MESSAGE;
       row.appendChild(why);
       return row;
     }
@@ -3432,10 +3490,10 @@
     row.appendChild(name);
     row.appendChild(meta);
 
-    if (!plan.stoppable) {
+    if (!plan.stoppable || accessRole !== 'control') {
       const why = document.createElement('div');
       why.className = 'proc-reason';
-      why.textContent = plan.reason;
+      why.textContent = plan.reason || VIEW_ONLY_MESSAGE;
       row.appendChild(why);
       return row;
     }
@@ -3754,16 +3812,28 @@
   }
 
   function updateTuningEnabled() {
-    const armed = state.tuningArmed;
+    const viewOnly = accessRole !== 'control';
+    const armed = !viewOnly && state.tuningArmed;
     tuningControls.forEach((record) => {
       if (record.toggle) record.toggle.disabled = !armed;
       if (record.slider) record.slider.disabled = !armed;
       if (record.number) record.number.disabled = !armed;
       record.revert.disabled = !armed;
+      [record.toggle, record.slider, record.number, record.revert].forEach((el) => {
+        if (!el) return;
+        if (viewOnly) {
+          if (!writeTitles.has(el)) writeTitles.set(el, el.title);
+          el.title = VIEW_ONLY_MESSAGE;
+        } else if (writeTitles.has(el)) {
+          el.title = writeTitles.get(el);
+          writeTitles.delete(el);
+        }
+      });
     });
     const savable = !!(state.tuning && state.tuning.allowSave
       && (state.tuning.nodes || []).some((n) => n.online && n.savable));
     tuningSave.disabled = !armed || !savable;
+    tuningSave.title = viewOnly ? VIEW_ONLY_MESSAGE : '';
   }
 
   function showTuningSaveResult(message) {
@@ -4130,6 +4200,7 @@
   // Go
   // ---------------------------------------------------------------------
   resizeCanvasIfNeeded();
+  loadAccessRole();
   renderLinkDetail();
   connect();
   render();

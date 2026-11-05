@@ -13,6 +13,7 @@
 
 import { CAR_WS_PATH, ConfigError, parseCars, serviceToken, type CarConfig, type Env } from "./config";
 import { diagnose } from "./diagnose";
+import { VIEW_ONLY_MESSAGE, gate, needsControl, oneportalOrigin, oneportalRequired } from "./gate";
 import { accessUser } from "./headers";
 import { bridge, passthroughHttp, passthroughWebSocket } from "./proxy";
 import { parseRoute, type Route } from "./routes";
@@ -69,7 +70,11 @@ async function handle(request: Request, env: Env): Promise<Response> {
   const route: Route = parseRoute(url.pathname);
 
   if (route.kind === "not-found") return text(404, "not found");
-  if (route.kind === "landing") return env.ASSETS.fetch(new Request(new URL("/index.html", url), request));
+  if (route.kind === "landing") {
+    // With OnePortal required, the car list lives in OnePortal.
+    if (oneportalRequired(env)) return Response.redirect(`${oneportalOrigin(env)}/`, 302);
+    return env.ASSETS.fetch(new Request(new URL("/index.html", url), request));
+  }
 
   let cars: Map<string, CarConfig>;
   try {
@@ -79,10 +84,20 @@ async function handle(request: Request, env: Env): Promise<Response> {
     throw err;
   }
 
-  if (route.kind === "api-cars") return apiCars(env, cars);
+  if (route.kind === "api-cars") {
+    if (oneportalRequired(env)) return text(403, `open the dashboards from OnePortal: ${oneportalOrigin(env)}/`);
+    return apiCars(env, cars);
+  }
 
   const car = cars.get(route.car);
   if (!car) return text(404, `unknown car '${route.car}'`);
+
+  // OnePortal decides who may view or drive this car (gate.ts). Nothing
+  // below, pages included, is served without passing it.
+  const user = userFor(request, env);
+  const access = await gate(request, env, route, user, Date.now());
+  if (!access.pass) return access.response;
+  if (needsControl(route) && access.role !== "control") return text(403, VIEW_ONLY_MESSAGE);
 
   switch (route.kind) {
     case "car-root":
@@ -100,6 +115,13 @@ async function handle(request: Request, env: Env): Promise<Response> {
       break;
   }
 
+  // What the page may offer: the view-only page hides every write.
+  if (route.kind === "access") {
+    return new Response(JSON.stringify({ car: route.car, role: access.role, via: access.via }), {
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
+
   // Reports on the secrets itself, so it runs before the check below.
   if (route.kind === "check") return diagnose(request, env, route.car, car);
 
@@ -112,7 +134,6 @@ async function handle(request: Request, env: Env): Promise<Response> {
     return env.CAR_RELAY.getByName(route.car).fetch(request);
   }
 
-  const user = userFor(request, env);
   if (!user) return text(403, "no Cloudflare Access identity on this request");
   const base = { car: route.car, clientId: token.id, clientSecret: token.secret, user };
 
