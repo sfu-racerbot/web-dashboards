@@ -44,6 +44,13 @@
     "PUBLIC_ORIGIN": "https://dashboard.sfuracerbot.ca",
     "UPSTREAM_IDLE_SEC": "60",
     "BRIDGE_TRACKING": "native",
+    // OnePortal (worker/src/oneportal.ts): its Ed25519 PUBLIC key, which
+    // checks the passes it signs. Not a secret. The cookie key is the
+    // secret ONEPORTAL_COOKIE_SECRET. REQUIRE_ONEPORTAL is deliberately not
+    // here: it is set on the Worker ("1" = OnePortal only) and keep_vars
+    // keeps it across deploys, so turning the old path off needs no merge.
+    "ONEPORTAL_PASS_PUBLIC_KEY": "mTgYBix4GvYLNTBaa4VmKxxX2H-qJ-1eL9r9KaaNMvU",
+    "ONEPORTAL_ORIGIN": "https://oneportal.sighton.ca",
     // The one place cars are configured. Adding a car is adding an entry
     // here (and its tunnel + Access setup, docs/cloudflare-setup.md).
     "CARS": {
