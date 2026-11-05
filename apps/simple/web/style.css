@@ -521,7 +521,13 @@ html, body {
 }
 
 #relay-text.link-bad { color: var(--bad); }
-.control-text.link-bad { color: var(--bad); }
+.control-text.link-bad {
+  color: var(--bad);
+  white-space: normal;
+  flex: 1 1 auto;
+}
+
+#link-detail:has(.control-text.link-bad) { height: auto; }
 
 #view-only-badge {
   margin-left: auto;

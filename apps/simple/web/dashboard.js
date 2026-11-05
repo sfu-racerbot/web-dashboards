@@ -636,19 +636,23 @@
   }
 
   async function loadAccessRole() {
+    accessRole = 'view';
+    applyAccessRole();
+    let role = 'view';
     try {
       const response = await fetch(endpoints.access, {
         credentials: 'same-origin', cache: 'no-store',
       });
-      if (!response.ok) return;
-      const access = await response.json();
-      if (access && access.car === endpoints.car && access.role === 'control') {
-        accessRole = 'control';
-        applyAccessRole();
+      if (response.ok) {
+        const access = await response.json();
+        if (access && access.car === endpoints.car && access.role === 'control') role = 'control';
       }
     } catch (err) {
       // Missing credentials, invalid JSON and network failures stay view-only.
     }
+    accessRole = role;
+    applyAccessRole();
+    return role;
   }
 
   // ---------------------------------------------------------------------
@@ -752,13 +756,23 @@
       setTuningArmed(false);
       if ([1008, 4003, 4401, 4403].includes(event.code)
           || /refus|forbidden|not change|view.only|unauthori/i.test(event.reason || '')) {
-        accessRole = 'view';
-        applyAccessRole();
-        setControlLinkText(VIEW_ONLY_MESSAGE, false);
-        controlText.className = 'control-text link-bad';
-        controlText.title = VIEW_ONLY_MESSAGE;
+        showControlRefusal();
+      } else if (event.code === 1006) {
+        // Browsers hide the HTTP 403 from a refused WebSocket handshake.
+        // Recheck access to distinguish that refusal from a dropped link.
+        loadAccessRole().then((role) => {
+          if (role === 'view') showControlRefusal();
+        });
       }
     };
+  }
+
+  function showControlRefusal() {
+    accessRole = 'view';
+    applyAccessRole();
+    setControlLinkText(VIEW_ONLY_MESSAGE, false);
+    controlText.className = 'control-text link-bad';
+    controlText.title = VIEW_ONLY_MESSAGE;
   }
 
   /** Send one write action over the control link, opening it if needed. */
@@ -4186,7 +4200,6 @@
   // Go
   // ---------------------------------------------------------------------
   resizeCanvasIfNeeded();
-  applyAccessRole();
   loadAccessRole();
   renderLinkDetail();
   connect();
