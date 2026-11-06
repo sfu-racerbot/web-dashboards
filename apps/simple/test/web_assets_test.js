@@ -402,12 +402,13 @@ test('the measure module loads before the dashboard', () => {
     `measure.js must be loaded before dashboard.js; order is ${scripts}`);
 });
 
-test('the script order is exactly measure.js -> dashboard.js -> panels.js', () => {
+test('the script order is exactly measure.js -> apex.js -> dashboard.js -> panels.js', () => {
   // The two ordering checks above, stated as one sequence. Not a separate
   // assertion in the Python original; added because it is the single fact
   // docs/web-dashboard.md quotes.
   const scripts = [...read('index.html').matchAll(/<script\s+src="([^"]+)"/g)].map((m) => m[1]);
-  assert(JSON.stringify(scripts) === JSON.stringify(['measure.js', 'dashboard.js', 'panels.js']),
+  // apex.js (Manual Apex Mode, 2026-11-06) is read by dashboard.js at init, like measure.js.
+  assert(JSON.stringify(scripts) === JSON.stringify(['measure.js', 'apex.js', 'dashboard.js', 'panels.js']),
     `script order is ${scripts}`);
 });
 

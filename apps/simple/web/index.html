@@ -377,6 +377,40 @@
         </div>
       </details>
 
+      <!-- Manual apex mode: an OFFLINE racing-line edit aid. Taps record
+           apex positions on the map (map frame only) tied to the racing
+           line shown; "save" downloads them as a JSON file for the line
+           editor and the lookahead tuner. Nothing here is sent to the car
+           and no tap ever issues a steering command. Off unless ticked;
+           measuring and apex mode never take taps at the same time. -->
+      <details class="section" data-section="apex" id="apex-section">
+        <summary class="section-head">
+          <span id="dot-apex" class="dot dot-gray"></span>
+          <span class="section-name">apex</span>
+          <span class="section-digest" id="digest-apex"></span>
+        </summary>
+        <div class="section-body">
+          <label class="measure-toggle">
+            <input type="checkbox" id="apex-enable">
+            <span>manual apex mode</span>
+          </label>
+          <div class="measure-note">
+            Tap the map where the racing line should put its apexes. Each
+            apex is tied to the nearest point of the line shown. Needs a
+            localization pose. Offline only: saving downloads a file.
+          </div>
+          <div id="apex-list" class="measure-list">
+            <div class="measure-empty">no apexes yet</div>
+          </div>
+          <div class="measure-buttons">
+            <button id="apex-undo" title="Remove the last apex">undo</button>
+            <button id="apex-clear" title="Remove every apex">clear</button>
+            <button id="apex-save" title="Download the apexes as JSON">save</button>
+          </div>
+          <div id="apex-status" class="measure-status" role="status" aria-live="polite"></div>
+        </div>
+      </details>
+
       <!-- Clearing the map. Three actions in increasing order of
            consequence, and they are deliberately not interchangeable:
            the first touches nothing on the car, the second calls a service,
@@ -526,6 +560,8 @@
        while it is initialising, so this file has to have run first.
        (panels.js is the opposite case -- see below.) -->
   <script src="measure.js"></script>
+  <!-- Also before dashboard.js: it reads window.__apex while initialising. -->
+  <script src="apex.js"></script>
   <script src="dashboard.js"></script>
   <!-- After dashboard.js on purpose. panels.js MOVES section elements
        around the page; dashboard.js has already looked all of them up by
