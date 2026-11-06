@@ -35,3 +35,30 @@ def test_refuses_unbounded_path(tmp_path, kind):
     # oracle: spec only an existing bounded CSV inside configured roots.
     with pytest.raises((ValueError, OSError), match='root|CSV|MiB|path|No such'):
         checked_path(value, [str(root)])
+
+
+def test_worker_invokes_installed_module(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+    from pathlib import Path
+    from types import SimpleNamespace
+    from web_dashboard.raceline import build_apex_line
+    source = tmp_path / 'raceline_profiled.csv'
+    source.write_text('0,0,1\n')
+    commands = []
+
+    def child_process(command, **kwargs):
+        commands.append(command)
+        # Mock only the OS process boundary; geometry is covered by the
+        # installed editor integration test in the workspace package.
+        out = Path(command[command.index('--out') + 1])
+        out.mkdir()
+        (out / 'raceline_profiled.csv').write_text('1,2,1\n')
+        return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+    monkeypatch.setattr(subprocess, 'run', child_process)
+    result = build_apex_line({'apexes': [{'x': 1, 'y': 2}]}, str(source), [str(tmp_path)])
+    # oracle: installation contract; no source-tree script or simulator path.
+    assert commands[0][:3] == [sys.executable, '-m', 'pure_pursuit.apex_line_editor']
+    assert Path(result).read_text() == '1,2,1\n'
+    assert Path(result).parent != source.parent

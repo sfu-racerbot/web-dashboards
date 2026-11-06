@@ -16,7 +16,7 @@ def checked_path(value, roots):
     return str(path)
 
 
-def build_apex_line(document, source, roots, editor_script):
+def build_apex_line(document, source, roots):
     """Run bounded offline validation in a worker, then return the new CSV."""
     import datetime
     import json
@@ -34,7 +34,7 @@ def build_apex_line(document, source, roots, editor_script):
     with tempfile.TemporaryDirectory(prefix='racerbot-apex-') as temp:
         request = Path(temp) / 'apexes.json'
         request.write_text(json.dumps(document, allow_nan=False))
-        result = subprocess.run([sys.executable, str(editor_script), '--run', str(source.parent),
+        result = subprocess.run([sys.executable, '-m', 'pure_pursuit.apex_line_editor', '--run', str(source.parent),
             '--apexes', str(request), '--out', str(out)], capture_output=True, text=True,
             timeout=60, check=False)
     if result.returncode:

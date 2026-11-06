@@ -1254,19 +1254,13 @@ class DashboardNode(Node):
                         self._apply_tuning_batch('pure_pursuit_node', {'pending_waypoints_file': ''})
                         return
                     from concurrent.futures import ThreadPoolExecutor
-                    from pathlib import Path
-                    script = next((p / 'tools/f1tenth_sim/apex_line_editor.py'
-                        for p in Path(__file__).resolve().parents
-                        if (p / 'tools/f1tenth_sim/apex_line_editor.py').is_file()), None)
-                    if script is None:
-                        raise ValueError('apex editor is unavailable in this workspace')
                     source = (self._last_racing_line or {}).get('source')
                     source = raceline.checked_path(source, self.map_roots)
                     if self._apex_executor is None:
                         self._apex_executor = ThreadPoolExecutor(max_workers=1)
                     self._apex_source, self._apex_origin = source, origin
                     self._apex_future = self._apex_executor.submit(
-                        raceline.build_apex_line, document, source, self.map_roots, script)
+                        raceline.build_apex_line, document, source, self.map_roots)
                 except Exception as exc:
                     self._broadcast(protocol.tuning_result_message(
                         'pure_pursuit_node', 'pending_waypoints_file', False, reason=str(exc)))
