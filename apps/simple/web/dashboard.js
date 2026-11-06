@@ -902,6 +902,11 @@
       scheduleRender();
     } else if (header.type === 'racing_line') {
       state.racingLine = header.line || null;
+      if (state.apexPendingPath && state.racingLine && state.racingLine.source === state.apexPendingPath) {
+        state.apexPendingPath = null;
+        const status = document.getElementById('apex-line-result');
+        if (status) status.textContent = 'Your apex line is now active in pure pursuit.';
+      }
       renderRacingLineStatus();
     } else if (header.type === 'tuning') {
       state.tuning = { enabled: header.enabled, allowSave: header.allow_save, nodes: header.nodes || [] };
@@ -910,6 +915,11 @@
       setTuningArmed(header.armed);
     } else if (header.type === 'tuning_result') {
       applyTuningResult(header);
+      if (header.node === 'pure_pursuit_node' && header.name === 'pending_waypoints_file') {
+        if (header.ok) state.apexPendingPath = header.value || null;
+        const result = document.getElementById('apex-line-result');
+        if (result) result.textContent = window.__apex.lineSwitchResult(header);
+      }
     } else if (header.type === 'tuning_saved') {
       showTuningSaveResult(header);
     } else if (header.type === 'processes') {
@@ -3001,11 +3011,34 @@
   const apexStatusEl = document.getElementById('apex-status');
   const apexDot = document.getElementById('dot-apex');
 
+  let apexApplyTimer = null;
+  function automaticallyApplyApexes() {
+    clearTimeout(apexApplyTimer);
+    if (!state.tuningArmed) {
+      apexState.note = 'Arm tuning to automatically prepare your apex line.';
+      renderApexPanel();
+      return;
+    }
+    apexApplyTimer = setTimeout(() => {
+      const line = state.racingLine;
+      const associated = apexState.list.map(a => {
+        const near = Apex.nearestWaypoint(line && line.points, a.x, a.y);
+        return Object.assign({}, a, {waypoint_index: near && near.index,
+          s_m: near && near.s, distance_to_line_m: near && near.distance});
+      });
+      const document = associated.length ? Apex.exportDocument(associated, line) : null;
+      sendTuningControl({action: 'apex', document});
+      apexState.note = document ? 'Checking line; release LB, then press it again after validation.' : 'Cancelling pending apex line.';
+      renderApexPanel();
+    }, 400);
+  }
+
   function addApexPoint(clientX, clientY) {
     if (!Apex) return;
     const result = Apex.addApex(apexState.list, canvasToActive(clientX, clientY), state.racingLine);
     apexState.list = result.apexes;
     apexState.note = result.added ? '' : result.reason;
+    if (result.added) automaticallyApplyApexes();
     renderApexPanel();
     scheduleRender();
   }
@@ -3100,12 +3133,23 @@
   const apexClearBtn = document.getElementById('apex-clear');
   const apexSaveBtn = document.getElementById('apex-save');
   if (apexUndoBtn) apexUndoBtn.addEventListener('click', () => {
-    apexState.list = Apex ? Apex.undo(apexState.list) : []; apexState.note = ''; renderApexPanel(); scheduleRender();
+    apexState.list = Apex ? Apex.undo(apexState.list) : []; apexState.note = ''; automaticallyApplyApexes(); renderApexPanel(); scheduleRender();
   });
   if (apexClearBtn) apexClearBtn.addEventListener('click', () => {
-    apexState.list = []; apexState.note = ''; renderApexPanel(); scheduleRender();
+    apexState.list = []; apexState.note = ''; automaticallyApplyApexes(); renderApexPanel(); scheduleRender();
   });
   if (apexSaveBtn) apexSaveBtn.addEventListener('click', saveApexes);
+  const lineUse = document.getElementById('apex-line-use');
+  if (lineUse) lineUse.addEventListener('click', () => {
+    const result = document.getElementById('apex-line-result');
+    if (!state.tuningArmed) {
+      result.textContent = 'Arm tuning first; stop the car and release LB.';
+      return;
+    }
+    result.textContent = 'Waiting for pure pursuit to accept the line…';
+    sendTuningControl({ action: 'set', node: 'pure_pursuit_node', name: 'pending_waypoints_file',
+      value: document.getElementById('apex-line-path').value.trim() });
+  });
 
   function setMeasureActive(active) {
     if (active && apexState.active) setApexActive(false);   // one tool takes taps at a time

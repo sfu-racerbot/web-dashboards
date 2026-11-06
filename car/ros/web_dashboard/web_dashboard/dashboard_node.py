@@ -114,7 +114,7 @@ import tornado.netutil
 import tornado.web
 from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
 
-from web_dashboard import intent, mapstore, netbind, origins, proccontrol, protocol, tuning
+from web_dashboard import intent, mapstore, netbind, origins, proccontrol, protocol, tuning, raceline
 from web_dashboard.batching import TelemetryBatcher
 from web_dashboard.server import DashboardWebSocket, make_app, send_to_all
 from web_dashboard.mapstream import MapGeometry, MapStreamer
@@ -822,6 +822,10 @@ class DashboardNode(Node):
         """Build one _TuningTarget per configured node, plus its timers."""
         self._tuning_targets = []
         self._tuning_requests = queue.Queue()
+        self._apex_future = None
+        self._apex_pending = None
+        self._apex_executor = None
+
         if not self.enable_tuning:
             # Still publish one "disabled" snapshot rather than nothing, so
             # a browser hides the panel outright instead of sitting on
@@ -1005,10 +1009,15 @@ class DashboardNode(Node):
                 save_origins.add(origin)
             elif action == 'refresh':
                 refresh_requested = True
+            elif action == 'apex':
+                self._apex_pending = (value, origin)
+                with self._replying_to({origin}):
+                    self._apply_tuning_batch('pure_pursuit_node', {'pending_waypoints_file': ''})
             elif action == 'set':
                 batches.setdefault(node_name, {})[name] = value
                 batch_origins.setdefault(node_name, set()).add(origin)
 
+        self._drain_apex_edits()
         for node_name, updates in batches.items():
             with self._replying_to(batch_origins.get(node_name)):
                 self._apply_tuning_batch(node_name, updates)
@@ -1026,6 +1035,24 @@ class DashboardNode(Node):
                 self._broadcast(protocol.tuning_result_message(
                     node_name, name, False,
                     reason=f"'{node_name}' is not running"))
+            return
+
+        if 'pending_waypoints_file' in updates:
+            try:
+                if node_name != 'pure_pursuit_node' or len(updates) != 1:
+                    raise ValueError('line switches require a separate pure_pursuit_node request')
+                path = (raceline.checked_path(updates['pending_waypoints_file'], self.map_roots)
+                        if updates['pending_waypoints_file'] else '')
+            except (ValueError, OSError, RuntimeError) as exc:
+                self._broadcast(protocol.tuning_result_message(
+                    node_name, 'pending_waypoints_file', False, reason=str(exc)))
+                return
+            request = SetParameters.Request()
+            request.parameters = [ParameterMsg(name='pending_waypoints_file', value=ParameterValue(
+                type=ParameterType.PARAMETER_STRING, string_value=path))]
+            future = target.set_client.call_async(request)
+            future.add_done_callback(self._keep_replying_to(
+                functools.partial(self._on_tuning_set, target, [('pending_waypoints_file', path)])))
             return
 
         by_name = {param['name']: param for param in target.spec}
@@ -1198,6 +1225,51 @@ class DashboardNode(Node):
         self._broadcast(message)
 
     # --- Entry points called from the IOLoop thread (see the contract above) ---
+
+    def request_apex_edit(self, document, origin=None):
+        self._tuning_requests.put(('apex', None, None, document, origin))
+
+    def _drain_apex_edits(self):
+        # Only one worker and one replacement request; a superseded result
+        # is never sent to the controller. ROS calls stay on the ROS thread.
+        if self._apex_future is not None and self._apex_future.done():
+            future, source, origin = self._apex_future, self._apex_source, self._apex_origin
+            self._apex_future = None
+            if self._apex_pending is None:
+                with self._replying_to({origin}):
+                    try:
+                        path = future.result()
+                        if not self._last_racing_line or self._last_racing_line.get('source') != source:
+                            raise ValueError('active line changed while editing; place the apex again')
+                        self._apply_tuning_batch('pure_pursuit_node', {'pending_waypoints_file': path})
+                    except Exception as exc:
+                        self._broadcast(protocol.tuning_result_message(
+                            'pure_pursuit_node', 'pending_waypoints_file', False, reason=str(exc)))
+        if self._apex_future is None and self._apex_pending is not None:
+            document, origin = self._apex_pending
+            self._apex_pending = None
+            with self._replying_to({origin}):
+                try:
+                    if document is None:
+                        self._apply_tuning_batch('pure_pursuit_node', {'pending_waypoints_file': ''})
+                        return
+                    from concurrent.futures import ThreadPoolExecutor
+                    from pathlib import Path
+                    script = next((p / 'tools/f1tenth_sim/apex_line_editor.py'
+                        for p in Path(__file__).resolve().parents
+                        if (p / 'tools/f1tenth_sim/apex_line_editor.py').is_file()), None)
+                    if script is None:
+                        raise ValueError('apex editor is unavailable in this workspace')
+                    source = (self._last_racing_line or {}).get('source')
+                    source = raceline.checked_path(source, self.map_roots)
+                    if self._apex_executor is None:
+                        self._apex_executor = ThreadPoolExecutor(max_workers=1)
+                    self._apex_source, self._apex_origin = source, origin
+                    self._apex_future = self._apex_executor.submit(
+                        raceline.build_apex_line, document, source, self.map_roots, script)
+                except Exception as exc:
+                    self._broadcast(protocol.tuning_result_message(
+                        'pure_pursuit_node', 'pending_waypoints_file', False, reason=str(exc)))
 
     def request_tuning_set(self, node_name, name, value, origin=None):
         self._tuning_requests.put(

@@ -406,6 +406,9 @@
             <button id="apex-undo" title="Remove the last apex">undo</button>
             <button id="apex-clear" title="Remove every apex">clear</button>
             <button id="apex-save" title="Download the apexes as JSON">save</button>
+            <label>Validated CSV path on car <input id="apex-line-path" type="text" placeholder="/path/to/run/apex_edit/raceline_profiled.csv"></label>
+            <button id="apex-line-use" type="button">Use in pure pursuit</button>
+            <p id="apex-line-result" role="status">Arm tuning and place apexes: the line is prepared automatically. Release LB, wait for validation, then press LB while stopped to apply.</p>
           </div>
           <div id="apex-status" class="measure-status" role="status" aria-live="polite"></div>
         </div>

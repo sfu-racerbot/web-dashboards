@@ -126,7 +126,14 @@
     };
   }
 
+  function lineSwitchResult(reply) {
+    if (reply.ok && reply.value === '') return 'Pending apex line cancelled.';
+    return reply.ok ? 'Line validated and queued. Release LB, then press LB while stopped to apply.'
+      : `Line switch refused: ${reply.reason || 'rejected by the node'}`;
+  }
+
   const api = {
+    lineSwitchResult,
     FORMAT, VERSION, MIN_SEPARATION_M,
     isMapPoint, nearestWaypoint, lineFingerprint, addApex, undo, ordered, exportDocument,
   };
