@@ -37,14 +37,17 @@ Per-person, per-car permissions live in OnePortal (`https://oneportal.sighton.ca
 
    It then sets its own cookie, `op_<car>`: HttpOnly, path `/<car>/`, 15 minutes, HMAC-signed with the Worker secret `ONEPORTAL_COOKIE_SECRET`. Last, it redirects to the same URL without the pass.
 3. Every car route needs that cookie: pages, `/ws`, `/control`, `/bridge`, `/camera`, `/check`.
-   - Without it, a page load is sent to OnePortal's `/dashboard/refresh`. OnePortal issues a fresh pass with the person's **current** role, or refuses.
-   - Anything else gets `401`.
+   - **Expired, but less than 12 hours ago:** the Worker asks OnePortal for a fresh pass, server to server: `POST https://oneportal.sighton.ca/api/dashboard-renew {email, car}`, signed in to Access with the Worker's own service token (`ACCESS_CLIENT_ID` / `ACCESS_CLIENT_SECRET`, the same one it uses to reach the cars). OnePortal answers with a pass at the person's **current** role, or refuses. The pass is checked exactly like one from a browser, and a new cookie is set. So an open dashboard keeps working, its sockets and camera included, without a reload. The simple page checks `/<car>/access` every 5 minutes, which keeps the cookie fresh.
+   - **No cookie, or older than that:** a page load is sent to OnePortal's `/dashboard/refresh`. OnePortal issues a fresh pass with the person's current role, or refuses. Anything else gets `401`.
+   - OnePortal refuses, is down or does not answer within 5 seconds: no access. It fails closed.
    - So a permission change in OnePortal applies within 15 minutes.
 4. **`/control` and `/bridge` need the control role.** The bridge counts as a write path because Lichtblick can set parameters and call services through it. A viewer gets `403 You can view this car but not change it`. The simple page asks `/<car>/access` for its role and hides the write controls for viewers. Hiding them is only for clarity; the Worker's refusal is the real lock.
 5. **`REQUIRE_ONEPORTAL`** is a Worker variable set on the Worker, not in `wrangler.jsonc`:
    - `"1"` (in fact any value but unset, empty or `"0"`, so a typo fails closed) makes OnePortal the only way in. `/` redirects to OnePortal, and `/api/cars` answers `403`.
    - Unset, Access alone still gives full access, as before. This exists for the staged rollout only.
    - Required but the key or secret missing: everything answers `500`. It fails closed.
+
+Opening `/<car>/advanced/` without a data source redirects once to the same page with `?ds=foxglove-websocket&ds.url=wss://<host>/<car>/bridge`, so Lichtblick connects to that car's bridge whichever way it was opened.
 
 The raw asset paths (`/index.html`, `/simple/…`, `/advanced/…`) go through the Worker too (`run_worker_first` in `wrangler.jsonc`), so nothing is served past the gate.
 

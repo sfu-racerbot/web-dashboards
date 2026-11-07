@@ -6,13 +6,17 @@
 // This Worker:
 //
 //   1. verifies the pass with OnePortal's PUBLIC key (ONEPORTAL_PASS_PUBLIC_KEY),
-//      so it holds no OnePortal secret and never calls OnePortal;
+//      so it holds no OnePortal secret, and a renewed pass is checked the same way;
 //   2. checks the pass is for this car and for the person Access signed in;
 //   3. swaps it for its own cookie, `op_<car>`, HMAC-signed with
 //      ONEPORTAL_COOKIE_SECRET, valid 15 minutes, path /<car>/;
-//   4. without a valid cookie, sends pages back to OnePortal's
-//      /dashboard/refresh, which issues a new pass with the person's current
-//      role or refuses. So a role change in OnePortal applies within 15 minutes.
+//   4. once the cookie has expired (up to RENEW_WINDOW_MS later), asks
+//      OnePortal for a fresh pass for the same person and car, server to
+//      server with the Worker's Access service token, so an open dashboard
+//      keeps working without a reload. OnePortal answers with the person's
+//      current role or refuses. So a role change applies within 15 minutes;
+//   5. with no cookie at all, sends pages back to OnePortal's
+//      /dashboard/refresh, which issues a new pass or refuses.
 //
 // Pass:   <b64url(JSON {v:1, iss:"oneportal", email, car, role, exp, jti})>.<b64url(Ed25519 sig over the first part)>
 // Cookie: <b64url(JSON {email, car, role, exp})>.<b64url(HMAC-SHA256 over the first part)>
@@ -31,6 +35,9 @@ export const PASS_PARAM = "oneportal_pass";
 export const COOKIE_TTL_MS = 15 * 60_000;
 /** Passes are signed for 2 minutes; this much clock difference is tolerated on top. */
 export const CLOCK_SKEW_MS = 30_000;
+/** How long after its expiry a cookie can still be renewed through OnePortal. */
+export const RENEW_WINDOW_MS = 12 * 60 * 60_000;
+export const RENEW_TIMEOUT_MS = 5_000;
 export const DEFAULT_ONEPORTAL_ORIGIN = "https://oneportal.sighton.ca";
 
 const encoder = new TextEncoder();
@@ -163,6 +170,58 @@ export async function verifyCookie(
   if (grant.exp <= opts.now || grant.exp > opts.now + COOKIE_TTL_MS + CLOCK_SKEW_MS) return null;
   if (grant.car !== opts.car || grant.email !== opts.user.toLowerCase()) return null;
   return grant;
+}
+
+/**
+ * An expired cookie that OnePortal may renew: MAC, car and person check out,
+ * and it expired less than RENEW_WINDOW_MS ago. It grants nothing by itself.
+ */
+export async function renewableCookie(
+  value: string,
+  opts: { secret: string; car: string; user: string; now: number },
+): Promise<Grant | null> {
+  const parts = value.split(".");
+  if (parts.length !== 2) return null;
+  const [body, macText] = parts;
+  const mac = b64urlDecode(macText);
+  const bodyBytes = b64urlDecode(body);
+  if (!mac || !bodyBytes) return null;
+  if (!(await crypto.subtle.verify("HMAC", await hmacKey(opts.secret), mac, encoder.encode(body)))) return null;
+  const payload = parseJson(bodyBytes);
+  const grant = payload && asGrant(payload);
+  if (!grant) return null;
+  if (grant.exp <= opts.now - RENEW_WINDOW_MS || grant.exp > opts.now + COOKIE_TTL_MS + CLOCK_SKEW_MS) return null;
+  if (grant.car !== opts.car || grant.email !== opts.user.toLowerCase()) return null;
+  return grant;
+}
+
+/**
+ * Asks OnePortal for a fresh pass for this person and car, with the Worker's
+ * Access service token. The pass is still verified by the caller; anything
+ * but a pass (refusal, timeout, outage) is null, so renewal fails closed.
+ */
+export async function requestRenewal(
+  opts: { origin: string; email: string; car: string; clientId: string; clientSecret: string; fetcher?: typeof fetch },
+): Promise<string | null> {
+  const fetcher = opts.fetcher ?? fetch;
+  try {
+    const response = await fetcher(new URL("/api/dashboard-renew", opts.origin).toString(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "CF-Access-Client-Id": opts.clientId,
+        "CF-Access-Client-Secret": opts.clientSecret,
+      },
+      body: JSON.stringify({ email: opts.email, car: opts.car }),
+      redirect: "manual",
+      signal: AbortSignal.timeout(RENEW_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    const data = await response.json() as { pass?: unknown };
+    return typeof data?.pass === "string" && data.pass.length < 4096 ? data.pass : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Where to send a browser that has no valid cookie for this car. */

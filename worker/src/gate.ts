@@ -4,7 +4,7 @@
 
 import {
   DEFAULT_ONEPORTAL_ORIGIN, PASS_PARAM, cookieName, makeCookie, readCookies, refreshUrl,
-  setCookieHeader, verifyCookie, verifyPass, withoutPass, type DashboardRole,
+  renewableCookie, requestRenewal, setCookieHeader, verifyCookie, verifyPass, withoutPass, type DashboardRole,
 } from "./oneportal";
 import type { Route } from "./routes";
 
@@ -13,11 +13,14 @@ export interface GateEnv {
   ONEPORTAL_COOKIE_SECRET?: string;
   REQUIRE_ONEPORTAL?: string;
   ONEPORTAL_ORIGIN?: string;
+  /** The Worker's Access service token, also used to renew cookies through OnePortal. */
+  ACCESS_CLIENT_ID?: string;
+  ACCESS_CLIENT_SECRET?: string;
 }
 
 /** What the request may do, or the answer to send instead. */
 export type GateResult =
-  | { pass: true; role: DashboardRole; via: "oneportal" | "access-only" }
+  | { pass: true; role: DashboardRole; via: "oneportal" | "access-only"; setCookie?: string }
   | { pass: false; response: Response };
 
 type CarRoute = Exclude<Route, { kind: "landing" } | { kind: "api-cars" } | { kind: "not-found" }>;
@@ -75,7 +78,10 @@ function isPageLoad(request: Request, route: CarRoute): boolean {
  *    and everything else is refused; without it, Access alone still counts as
  *    full access (the pre-OnePortal behaviour, for the staged rollout).
  */
-export async function gate(request: Request, env: GateEnv, route: CarRoute, user: string | null, now: number): Promise<GateResult> {
+export async function gate(
+  request: Request, env: GateEnv, route: CarRoute, user: string | null, now: number,
+  fetcher?: typeof fetch,
+): Promise<GateResult> {
   const required = oneportalRequired(env);
   const origin = oneportalOrigin(env);
   const publicKey = env.ONEPORTAL_PASS_PUBLIC_KEY;
@@ -111,6 +117,26 @@ export async function gate(request: Request, env: GateEnv, route: CarRoute, user
     }
   }
   if (grant) return { pass: true, role: grant.role, via: "oneportal" };
+
+  // An expired cookie: OnePortal is asked for the person's current role, so an
+  // open dashboard keeps working. The answer is a pass, checked like any other.
+  const clientId = (env.ACCESS_CLIENT_ID ?? "").trim();
+  const clientSecret = (env.ACCESS_CLIENT_SECRET ?? "").trim();
+  if (user && clientId && clientSecret) {
+    let renewable = null;
+    for (const value of readCookies(request.headers, cookieName(car))) {
+      renewable = await renewableCookie(value, { secret: secret!, car, user, now });
+      if (renewable) break;
+    }
+    if (renewable) {
+      const fresh = await requestRenewal({ origin, email: renewable.email, car, clientId, clientSecret, fetcher });
+      const result = fresh === null ? null : await verifyPass(fresh, { publicKey: publicKey!, car, user, now });
+      if (result?.ok) {
+        const cookie = await makeCookie(result.grant, secret!, now);
+        return { pass: true, role: result.grant.role, via: "oneportal", setCookie: setCookieHeader(car, cookie.value) };
+      }
+    }
+  }
 
   if (!required) return { pass: true, role: "control", via: "access-only" };
   if (isPageLoad(request, route)) return { pass: false, response: redirect(refreshUrl(origin, car, url.pathname)) };

@@ -661,6 +661,35 @@
     return role;
   }
 
+  // The access cookie lasts 15 minutes. Checking /access every 5 lets the
+  // Worker renew it through OnePortal while the page stays open, and picks up
+  // a role change without a reload. A failed check changes nothing: the next
+  // refused write or socket shows it.
+  const ACCESS_RECHECK_MS = 5 * 60 * 1000;
+  async function recheckAccessRole() {
+    try {
+      const response = await fetch(endpoints.access, { credentials: 'same-origin', cache: 'no-store' });
+      if (response.status === 401 || response.status === 403) {
+        if (accessRole !== 'view') { accessRole = 'view'; applyAccessRole(); }
+        return;
+      }
+      if (!response.ok) return;
+      const access = await response.json();
+      const role = access && access.car === endpoints.car && access.role === 'control' ? 'control' : 'view';
+      if (role !== accessRole) {
+        accessRole = role;
+        if (role === 'view') closeControl('role changed');
+        applyAccessRole();
+      }
+    } catch (err) {
+      // Offline for a moment: keep the current role until the next check.
+    }
+  }
+  setInterval(recheckAccessRole, ACCESS_RECHECK_MS);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') recheckAccessRole();
+  });
+
   // ---------------------------------------------------------------------
   // WebSocket connection, with automatic reconnect -- a dropped WiFi link
   // shouldn't require reloading the page.
