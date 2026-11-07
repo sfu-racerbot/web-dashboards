@@ -478,6 +478,12 @@
     note: '',       // why the chain was cleared, when it was cleared for us
   };
 
+  // Manual apex mode (web/apex.js holds the logic). Offline only: taps are
+  // recorded here and saved as a downloaded file; nothing is ever sent to
+  // the car from this tool.
+  const Apex = (typeof window !== 'undefined' && window.__apex) || null;
+  const apexState = { active: false, list: [], note: '' };
+
   // Two points closer together than this on screen are the same point --
   // a double-click delivers two pointerup events a pixel apart, and a
   // zero-length leg is noise in the list.
@@ -954,6 +960,11 @@
       scheduleRender();
     } else if (header.type === 'racing_line') {
       state.racingLine = header.line || null;
+      if (state.apexPendingPath && state.racingLine && state.racingLine.source === state.apexPendingPath) {
+        state.apexPendingPath = null;
+        const status = document.getElementById('apex-line-result');
+        if (status) status.textContent = 'Your apex line is now active in pure pursuit.';
+      }
       renderRacingLineStatus();
     } else if (header.type === 'tuning') {
       state.tuning = { enabled: header.enabled, allowSave: header.allow_save, nodes: header.nodes || [] };
@@ -962,6 +973,11 @@
       setTuningArmed(header.armed);
     } else if (header.type === 'tuning_result') {
       applyTuningResult(header);
+      if (header.node === 'pure_pursuit_node' && header.name === 'pending_waypoints_file') {
+        if (header.ok) state.apexPendingPath = header.value || null;
+        const result = document.getElementById('apex-line-result');
+        if (result) result.textContent = window.__apex.lineSwitchResult(header);
+      }
     } else if (header.type === 'tuning_saved') {
       showTuningSaveResult(header);
     } else if (header.type === 'processes') {
@@ -1505,6 +1521,7 @@
     // green, amber and red for what the CAR has decided, and a measurement
     // is the system talking, not a verdict about the drive.
     drawMeasure(mapRelative);
+    drawApexes(mapRelative);
 
     updateScaleBar();
     drawMinimap();
@@ -2892,7 +2909,7 @@
   /** True while a single pointer is down, measuring, and still within the
    *  tap slop -- i.e. it may yet turn out to be a tap rather than a pan. */
   function measuringStill() {
-    if (!measure.active || !Measure || !tapCandidate) return false;
+    if ((!measure.active && !apexState.active) || !Measure || !tapCandidate) return false;
     if (pointers.size !== 1) return false;
     return tapCandidate.maxTravel <= Measure.slopFor(tapCandidate.pointerType);
   }
@@ -2905,14 +2922,15 @@
     if (candidate) tapCandidate = null;
     // pointercancel means the browser took the gesture away (a system
     // gesture, a scroll it decided to own). That is not a tap.
-    if (candidate && e.type === 'pointerup' && measure.active && Measure
+    if (candidate && e.type === 'pointerup' && (measure.active || apexState.active) && Measure
         && Measure.isTap({
           maxTravelPx: candidate.maxTravel,
           durationMs: performance.now() - candidate.t0,
           pointerCount: candidate.count,
           pointerType: candidate.pointerType,
         })) {
-      addMeasurePoint(e.clientX, e.clientY);
+      if (measure.active) addMeasurePoint(e.clientX, e.clientY);
+      else addApexPoint(e.clientX, e.clientY);
     }
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
     // Lifting one finger of a pinch needs no fix-up: the next move reads
@@ -2947,7 +2965,7 @@
     // the browser synthesises a dblclick from a double-tap on a touchscreen
     // too. Resetting the view out from under that would be maddening.
     // The reset button and the M key both stay available.
-    if (measure.active) { e.preventDefault(); return; }
+    if (measure.active || apexState.active) { e.preventDefault(); return; }
     resetView();
   });
 
@@ -3042,7 +3060,157 @@
     scheduleRender();
   }
 
+  // ---------------------------------------------------------------------
+  // Manual apex mode: markers, sidebar and save. Map frame only; offline.
+  // ---------------------------------------------------------------------
+
+  const apexEnable = document.getElementById('apex-enable');
+  const apexListEl = document.getElementById('apex-list');
+  const apexStatusEl = document.getElementById('apex-status');
+  const apexDot = document.getElementById('dot-apex');
+
+  let apexApplyTimer = null;
+  function automaticallyApplyApexes() {
+    clearTimeout(apexApplyTimer);
+    if (!state.tuningArmed) {
+      apexState.note = 'Arm tuning to automatically prepare your apex line.';
+      renderApexPanel();
+      return;
+    }
+    apexApplyTimer = setTimeout(() => {
+      const line = state.racingLine;
+      const associated = apexState.list.map(a => {
+        const near = Apex.nearestWaypoint(line && line.points, a.x, a.y);
+        return Object.assign({}, a, {waypoint_index: near && near.index,
+          s_m: near && near.s, distance_to_line_m: near && near.distance});
+      });
+      const document = associated.length ? Apex.exportDocument(associated, line) : null;
+      sendTuningControl({action: 'apex', document});
+      apexState.note = document ? 'Checking line; release LB, then press it again after validation.' : 'Cancelling pending apex line.';
+      renderApexPanel();
+    }, 400);
+  }
+
+  function addApexPoint(clientX, clientY) {
+    if (!Apex) return;
+    const result = Apex.addApex(apexState.list, canvasToActive(clientX, clientY), state.racingLine);
+    apexState.list = result.apexes;
+    apexState.note = result.added ? '' : result.reason;
+    if (result.added) automaticallyApplyApexes();
+    renderApexPanel();
+    scheduleRender();
+  }
+
+  function setApexActive(active) {
+    apexState.active = !!active && !!Apex;
+    if (apexState.active && measure.active) setMeasureActive(false);   // one tool takes taps at a time
+    if (apexEnable) apexEnable.checked = apexState.active;
+    canvas.style.cursor = (apexState.active || measure.active) ? 'crosshair' : '';
+    renderApexPanel();
+    scheduleRender();
+  }
+
+  function renderApexPanel() {
+    if (apexDot) apexDot.className = 'dot ' + (apexState.active ? 'dot-green' : 'dot-gray');
+    setDigest('apex', apexState.list.length ? `${apexState.list.length} apex` : '');
+    if (apexListEl) {
+      apexListEl.textContent = '';
+      if (!apexState.list.length) {
+        const empty = document.createElement('div');
+        empty.className = 'measure-empty';
+        empty.textContent = 'no apexes yet';
+        apexListEl.appendChild(empty);
+      }
+      Apex && Apex.ordered(apexState.list).forEach((a, i) => {
+        const row = document.createElement('div');
+        row.className = 'measure-row';
+        const where = a.waypoint_index == null ? 'no racing line'
+          : `waypoint ${a.waypoint_index}, ${a.s_m.toFixed(2)} m along, ${a.distance_to_line_m.toFixed(2)} m off the line`;
+        row.textContent = `${i + 1}. (${a.x.toFixed(2)}, ${a.y.toFixed(2)}) -- ${where}`;
+        apexListEl.appendChild(row);
+      });
+    }
+    if (apexStatusEl) apexStatusEl.textContent = apexState.note;
+  }
+
+  // The car, as resolveEndpoints() reads it: the URL's first path segment.
+  function carFromLocation() {
+    const first = String(window.location.pathname || '/').split('/').filter(Boolean)[0] || '';
+    return /^[a-z0-9][a-z0-9-]{0,31}$/.test(first) ? first : null;
+  }
+
+  function saveApexes() {
+    if (!Apex || !apexState.list.length) {
+      apexState.note = 'nothing to save yet';
+      renderApexPanel();
+      return;
+    }
+    const doc = Apex.exportDocument(apexState.list, state.racingLine,
+      { created: new Date().toISOString(), car: carFromLocation() });
+    const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `apexes_${doc.created.replace(/[:.]/g, '-')}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    apexState.note = `saved ${apexState.list.length} apex(es) to ${a.download}`;
+    renderApexPanel();
+  }
+
+  function drawApexes(mapRelative) {
+    if (!Apex || !apexState.list.length || !mapRelative) return;    // map-frame points need a pose
+    const dpr = window.devicePixelRatio || 1;
+    const line = state.racingLine;
+    const pts = line && Array.isArray(line.points) ? line.points : null;
+    ctx.save();
+    ctx.font = `${12 * dpr}px sans-serif`;
+    Apex.ordered(apexState.list).forEach((a, i) => {
+      const [x, y] = worldToCanvas(a.x, a.y);
+      if (pts && a.waypoint_index != null && pts[a.waypoint_index]) {
+        const [wx, wy] = worldToCanvas(pts[a.waypoint_index][0], pts[a.waypoint_index][1]);
+        ctx.setLineDash([4 * dpr, 4 * dpr]);
+        ctx.strokeStyle = 'rgba(214, 102, 255, 0.9)';
+        ctx.lineWidth = 1.5 * dpr;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(wx, wy); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.fillStyle = 'rgba(214, 102, 255, 0.95)';     // magenta: a person's edit, not a car decision
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.lineWidth = 2 * dpr;
+      ctx.beginPath(); ctx.arc(x, y, 6 * dpr, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.fillText(String(i + 1), x + 8 * dpr, y - 8 * dpr);
+    });
+    ctx.restore();
+  }
+
+  if (apexEnable) apexEnable.addEventListener('change', () => setApexActive(apexEnable.checked));
+  const apexUndoBtn = document.getElementById('apex-undo');
+  const apexClearBtn = document.getElementById('apex-clear');
+  const apexSaveBtn = document.getElementById('apex-save');
+  if (apexUndoBtn) apexUndoBtn.addEventListener('click', () => {
+    apexState.list = Apex ? Apex.undo(apexState.list) : []; apexState.note = ''; automaticallyApplyApexes(); renderApexPanel(); scheduleRender();
+  });
+  if (apexClearBtn) apexClearBtn.addEventListener('click', () => {
+    apexState.list = []; apexState.note = ''; automaticallyApplyApexes(); renderApexPanel(); scheduleRender();
+  });
+  if (apexSaveBtn) apexSaveBtn.addEventListener('click', saveApexes);
+  const lineUse = document.getElementById('apex-line-use');
+  if (lineUse) lineUse.addEventListener('click', () => {
+    const result = document.getElementById('apex-line-result');
+    if (!state.tuningArmed) {
+      result.textContent = 'Arm tuning first; stop the car and release LB.';
+      return;
+    }
+    result.textContent = 'Waiting for pure pursuit to accept the line…';
+    sendTuningControl({ action: 'set', node: 'pure_pursuit_node', name: 'pending_waypoints_file',
+      value: document.getElementById('apex-line-path').value.trim() });
+  });
+
   function setMeasureActive(active) {
+    if (active && apexState.active) setApexActive(false);   // one tool takes taps at a time
     measure.active = !!active;
     if (measureEnable) measureEnable.checked = measure.active;
     document.body.classList.toggle('measuring', measure.active);
@@ -4054,6 +4222,7 @@
     tuning: document.getElementById('digest-tuning'),
     processes: document.getElementById('digest-processes'),
     measure: document.getElementById('digest-measure'),
+    apex: document.getElementById('digest-apex'),
     maps: document.getElementById('digest-maps'),
   };
 

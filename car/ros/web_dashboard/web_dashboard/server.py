@@ -265,7 +265,9 @@ class DashboardWebSocket(tornado.websocket.WebSocketHandler):
                 False, reason='tuning is not armed on this connection'))
             return
 
-        if action == 'set':
+        if action == 'apex':
+            self.node.request_apex_edit(payload.get('document'), self.conn_id)
+        elif action == 'set':
             self.node.request_tuning_set(
                 payload.get('node'), payload.get('name'), payload.get('value'),
                 self.conn_id)
