@@ -1,8 +1,8 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { gate, needsControl } from "../src/gate";
-import { COOKIE_TTL_MS, makeCookie, refreshUrl, verifyCookie, verifyPass } from "../src/oneportal";
-import { parseRoute } from "../src/routes";
+import { COOKIE_TTL_MS, RENEW_WINDOW_MS, makeCookie, refreshUrl, verifyCookie, verifyPass } from "../src/oneportal";
+import { lichtblickDeepLink, parseRoute } from "../src/routes";
 
 // A pass exactly as OnePortal's apps/control/src/dashboard-pass.mjs makes one.
 const { privateKey, publicKey } = generateKeyPairSync("ed25519");
@@ -176,5 +176,84 @@ describe("gate", () => {
     expect(needsControl(route("/rb1/control"))).toBe(true);
     expect(needsControl(route("/rb1/bridge"))).toBe(true);
     for (const p of ["/rb1/ws", "/rb1/camera/x", "/rb1/simple/", "/rb1/check", "/rb1/access"]) expect(needsControl(route(p))).toBe(false);
+  });
+});
+
+describe("cookie renewal through OnePortal", () => {
+  const RENEW_ENV = { ...ENV, ACCESS_CLIENT_ID: "id.access", ACCESS_CLIENT_SECRET: "s".repeat(64) };
+  const expiredCookie = (over: Partial<{ email: string; car: string }> = {}, ago = 60_000) =>
+    cookieFor("view", over, NOW - COOKIE_TTL_MS - ago);
+  function oneportal(answer: (body: { email: string; car: string }) => Response | Promise<Response>) {
+    const calls: { url: string; headers: Headers; body: { email: string; car: string } }[] = [];
+    const fetcher = (async (url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      calls.push({ url, headers: new Headers(init.headers), body });
+      return answer(body);
+    }) as unknown as typeof fetch;
+    return { calls, fetcher };
+  }
+  const passResponse = (p: string) => new Response(JSON.stringify({ pass: p }), { headers: { "Content-Type": "application/json" } });
+
+  it("renews an expired cookie at the person's current role and sets a new cookie", async () => {
+    const op = oneportal(() => passResponse(pass({ role: "control" })));
+    const r = await gate(req("/rb1/ws", { Cookie: await expiredCookie() }), RENEW_ENV, route("/rb1/ws"), "a@sfu.ca", NOW, op.fetcher);
+    expect(r.pass && r.role).toBe("control");
+    expect(r.pass && r.setCookie).toMatch(/^op_rb1=[\w-]+\.[\w-]+; Path=\/rb1\/;/);
+    expect(op.calls).toHaveLength(1);
+    expect(op.calls[0].url).toBe(`${ORIGIN}/api/dashboard-renew`);
+    expect(op.calls[0].body).toEqual({ email: "a@sfu.ca", car: "rb1" });
+    expect(op.calls[0].headers.get("CF-Access-Client-Id")).toBe("id.access");
+  });
+
+  it("fails closed when OnePortal refuses, is down, or answers with a pass it did not sign or for someone else", async () => {
+    const answers = [
+      () => new Response("no", { status: 403 }),
+      () => { throw new Error("down"); },
+      () => passResponse(pass({ role: "control" }, other.privateKey)),
+      () => passResponse(pass({ role: "control", email: "b@sfu.ca" })),
+      () => passResponse(pass({ role: "control", car: "rb2" })),
+      () => new Response("{}", { headers: { "Content-Type": "application/json" } }),
+    ];
+    for (const answer of answers) {
+      const op = oneportal(answer);
+      const r = await gate(req("/rb1/control", { Cookie: await expiredCookie() }), RENEW_ENV, route("/rb1/control"), "a@sfu.ca", NOW, op.fetcher);
+      expect(r.pass).toBe(false);
+    }
+  });
+
+  it("does not ask OnePortal without a renewable cookie of this person and car, or without the service token", async () => {
+    const op = oneportal(() => passResponse(pass({ role: "control" })));
+    const cases: [string, string, Record<string, string | undefined>][] = [
+      ["", "a@sfu.ca", RENEW_ENV],
+      [await expiredCookie({}, RENEW_WINDOW_MS + 1), "a@sfu.ca", RENEW_ENV],
+      [await expiredCookie(), "b@sfu.ca", RENEW_ENV],
+      [(await expiredCookie({ car: "rb2" })).replace("op_rb2", "op_rb1"), "a@sfu.ca", RENEW_ENV],
+      [`op_rb1=${"x".repeat(20)}.${"y".repeat(20)}`, "a@sfu.ca", RENEW_ENV],
+      [await expiredCookie(), "a@sfu.ca", ENV],
+    ];
+    for (const [Cookie, user, env] of cases) {
+      const r = await gate(req("/rb1/control", Cookie ? { Cookie } : {}), env, route("/rb1/control"), user, NOW, op.fetcher);
+      expect(r.pass).toBe(false);
+    }
+    expect(op.calls).toHaveLength(0);
+  });
+
+  it("does not renew a cookie that is still valid", async () => {
+    const op = oneportal(() => passResponse(pass({ role: "control" })));
+    const r = await gate(req("/rb1/control", { Cookie: await cookieFor("view") }), RENEW_ENV, route("/rb1/control"), "a@sfu.ca", NOW, op.fetcher);
+    expect(r).toEqual({ pass: true, role: "view", via: "oneportal" });
+    expect(op.calls).toHaveLength(0);
+  });
+});
+
+describe("lichtblickDeepLink", () => {
+  it("adds the car's bridge as the data source, once", () => {
+    const deep = lichtblickDeepLink(new URL("https://dashboard.sfuracerbot.ca/rb2/advanced/"), "rb2")!;
+    const u = new URL(deep);
+    expect(u.pathname).toBe("/rb2/advanced/");
+    expect(u.searchParams.get("ds")).toBe("foxglove-websocket");
+    expect(u.searchParams.get("ds.url")).toBe("wss://dashboard.sfuracerbot.ca/rb2/bridge");
+    expect(lichtblickDeepLink(u, "rb2")).toBeNull();
+    expect(new URL(lichtblickDeepLink(new URL("http://localhost:8787/rb1/advanced/"), "rb1")!).searchParams.get("ds.url")).toBe("ws://localhost:8787/rb1/bridge");
   });
 });

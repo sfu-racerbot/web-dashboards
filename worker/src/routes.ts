@@ -74,3 +74,13 @@ export function parseRoute(pathname: string): Route {
   }
   return { kind: "not-found" };
 }
+
+/** Lichtblick opens the data source named in its URL; OnePortal links to the bare page. */
+export function lichtblickDeepLink(url: URL, car: string): string | null {
+  if (url.searchParams.has("ds")) return null;
+  const target = new URL(url.toString());
+  const scheme = url.protocol === "http:" ? "ws:" : "wss:";
+  target.searchParams.set("ds", "foxglove-websocket");
+  target.searchParams.set("ds.url", `${scheme}//${url.host}/${car}/bridge`);
+  return target.toString();
+}

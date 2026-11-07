@@ -16,7 +16,7 @@ import { diagnose } from "./diagnose";
 import { VIEW_ONLY_MESSAGE, gate, needsControl, oneportalOrigin, oneportalRequired } from "./gate";
 import { accessUser } from "./headers";
 import { bridge, passthroughHttp, passthroughWebSocket } from "./proxy";
-import { parseRoute, type Route } from "./routes";
+import { lichtblickDeepLink, parseRoute, type Route } from "./routes";
 
 export { CarRelay } from "./relay";
 
@@ -99,12 +99,38 @@ async function handle(request: Request, env: Env): Promise<Response> {
   if (!access.pass) return access.response;
   if (needsControl(route) && access.role !== "control") return text(403, VIEW_ONLY_MESSAGE);
 
+  const response = await serveCar(request, env, url, route, car, user, access.role, access.via);
+  return access.setCookie ? withCookie(response, access.setCookie) : response;
+}
+
+/**
+ * A renewed cookie rides on the response. A WebSocket upgrade cannot carry
+ * one, which is fine: the page's periodic /access check renews it.
+ */
+function withCookie(response: Response, setCookie: string): Response {
+  if (response.status === 101 || response.webSocket) return response;
+  const out = new Response(response.body, response);
+  out.headers.append("Set-Cookie", setCookie);
+  return out;
+}
+
+type CarRoute = Exclude<Route, { kind: "landing" } | { kind: "api-cars" } | { kind: "not-found" }>;
+
+async function serveCar(
+  request: Request, env: Env, url: URL, route: CarRoute, car: CarConfig, user: string | null,
+  role: "view" | "control", via: "oneportal" | "access-only",
+): Promise<Response> {
   switch (route.kind) {
     case "car-root":
       return Response.redirect(new URL("/", url).toString(), 302);
     case "app-slash":
       return Response.redirect(new URL(`/${route.car}/${route.app}/${url.search}`, url).toString(), 301);
     case "app": {
+      if (route.app === "advanced" && route.assetPath === "/advanced/index.html"
+          && (request.headers.get("Sec-Fetch-Mode") ?? "navigate") === "navigate") {
+        const deep = lichtblickDeepLink(url, route.car);
+        if (deep) return new Response(null, { status: 302, headers: { Location: deep, "Cache-Control": "no-store" } });
+      }
       const asset = await env.ASSETS.fetch(new Request(new URL(route.assetPath, url), request));
       if (asset.status === 404 && route.app === "advanced") {
         return text(404, "the advanced dashboard (Lichtblick) is not in this build -- see apps/advanced/README.md");
@@ -117,7 +143,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
 
   // What the page may offer: the view-only page hides every write.
   if (route.kind === "access") {
-    return new Response(JSON.stringify({ car: route.car, role: access.role, via: access.via }), {
+    return new Response(JSON.stringify({ car: route.car, role, via }), {
       headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
     });
   }
