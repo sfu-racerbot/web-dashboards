@@ -138,6 +138,9 @@ async def scenario(name, args, params, params_path):
                 tasks.extend(asyncio.create_task(traffic.publish(*stream))
                              for stream in traffic.streams)
                 tasks.append(asyncio.create_task(traffic.maps()))
+                # Let DDS discovery complete before settling/measuring. Keeping
+                # map updates away from window boundaries makes their counts repeatable.
+                await asyncio.sleep(1)
             if name == 'watched':
                 for _ in range(args.viewers):
                     ws = await tornado.websocket.websocket_connect(

@@ -43,6 +43,7 @@ for the user-facing account and `enable_tuning: false` to remove it.
 | [`web_dashboard/protocol.py`](web_dashboard/protocol.py) | Wire-format conversion — turns ROS messages into JSON headers + binary payloads. No `rclpy`/Tornado/network imports, so it's unit-testable in isolation (see [`test/test_protocol.py`](test/test_protocol.py)). |
 | [`web_dashboard/mapstream.py`](web_dashboard/mapstream.py) | Turns a stream of whole occupancy grids into keyframes and patches, so the car sends what changed rather than 4MB. No ROS imports (see [`test/test_mapstream.py`](test/test_mapstream.py)). |
 | [`web_dashboard/batching.py`](web_dashboard/batching.py) | Collapses ~155 small telemetry messages a second into one frame per tick, while preserving every `/drive_intent` state transition (see [`test/test_batching.py`](test/test_batching.py)). |
+| [`web_dashboard/activity.py`](web_dashboard/activity.py) | ROS-free viewer-activity decision used to skip display-only work while disconnected. |
 | [`web_dashboard/stopwatch.py`](web_dashboard/stopwatch.py) | ROS-free deadman-gated stopwatch state machine, including joystick timeout handling. |
 | [`web_dashboard/netbind.py`](web_dashboard/netbind.py) | One decision: whether the configured `host` means "every interface". `0.0.0.0` binds IPv4 *only*, which left the dashboard unreachable at the car's Tailscale IPv6 address, so the wildcards are turned into "bind with no address" and get both families. No ROS imports (see [`test/test_netbind.py`](test/test_netbind.py)). |
 | [`web_dashboard/tuning.py`](web_dashboard/tuning.py) | Live-tuning support: parsing a node's advertised catalogue, clamping a browser request, and the comment-preserving YAML writer. No ROS/Tornado imports either (see [`test/test_tuning.py`](test/test_tuning.py)). |
@@ -79,7 +80,9 @@ connection) don't share a thread by default. `main()` spins rclpy on a
 background thread and lets Tornado's IOLoop own the main thread:
 
 ```python
-ros_thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
+executor = _make_executor(node)
+executor.add_node(node)
+ros_thread = threading.Thread(target=_spin_executor, args=(executor,), daemon=True)
 ros_thread.start()
 
 app = node.make_app()
@@ -87,6 +90,20 @@ app.listen(node.port, address=node.host)
 node._loop = tornado.ioloop.IOLoop.current()
 node._loop.start()
 ```
+
+`_make_executor()` prefers Jazzy's `rclpy.experimental.EventsExecutor`, which
+dispatches queued events instead of rebuilding a wait set for every timer and
+message. If import or construction fails, it uses `SingleThreadedExecutor`.
+Startup logs name the selected executor. Both run on the same ROS spin thread;
+the subscription, timer and service-future ownership rules below still apply.
+On exit, the executor is shut down and its thread joined before destroying the
+node. An external ROS shutdown is handled without a thread traceback.
+
+Timers keep their configured periods. Unwatched pose, command, odometry and
+intent callbacks retain their latest state but skip constructing display
+messages; a new connection receives that state through `send_initial_state()`.
+The stopwatch and tuning state continue updating. See the repeatable
+[CPU benchmark](../../docs/web-dashboard.md#cpu) for measurements and how to rerun.
 
 Tornado documents `IOLoop.add_callback()` as safe to call from any thread,
 specifically to hand work back onto the IOLoop's own thread — so every
