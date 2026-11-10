@@ -15,6 +15,12 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+# Below the driving stack: every Lichtblick viewer gets its own connection here, and on
+# SFU Racerbot car 2 (2026-11-09) the bridge reached 60-109% CPU while two people
+# watched a map-racer run on a CPU already 80-94% busy. It must never win CPU from the
+# LiDAR driver, localization or the controller.
+Nice=10
+CPUWeight=20
 Type=simple
 # The same user every other ROS node on the car runs as, so Fast DDS's
 # shared-memory transport and discovery work exactly as between terminals.

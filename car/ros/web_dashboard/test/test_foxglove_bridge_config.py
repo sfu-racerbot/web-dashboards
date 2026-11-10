@@ -145,3 +145,23 @@ def test_every_regex_compiles():
                 'param_whitelist', 'asset_uri_allowlist'):
         for pattern in params[key]:
             re.compile(pattern)
+
+
+# The boot unit runs the bridge below the car's driving stack. Oracle: systemd's
+# defaults, Nice 0 and CPUWeight 100 (systemd.exec(5), systemd.resource-control(5)),
+# which is what driving nodes started from a terminal run with.
+_UNIT = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'systemd', 'foxglove-bridge.service')
+
+
+def _unit_values(key):
+    with open(_UNIT) as handle:
+        lines = [line.strip() for line in handle]
+    return [line.split('=', 1)[1].strip() for line in lines
+            if line and not line.startswith(('#', ';', '[')) and line.split('=', 1)[0].strip() == key]
+
+
+def test_the_bridge_unit_runs_below_the_driving_stack():
+    nice, weight = _unit_values('Nice'), _unit_values('CPUWeight')
+    assert len(nice) == 1 and len(weight) == 1
+    assert 0 < int(nice[0]) <= 19, f'Nice={nice[0]} must be above the default 0'
+    assert 1 <= int(weight[0]) < 100, f'CPUWeight={weight[0]} must be below the default 100'
