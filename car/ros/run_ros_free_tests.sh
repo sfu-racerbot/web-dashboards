@@ -33,6 +33,7 @@ ROS_FREE=(
   web_dashboard/test/test_proccontrol.py
   web_dashboard/test/test_protocol.py
   web_dashboard/test/test_protocol_encoding.py
+  web_dashboard/test/test_raceline.py
   web_dashboard/test/test_racing_line_protocol.py
   web_dashboard/test/test_remote_check.py
   web_dashboard/test/test_roles.py
