@@ -240,15 +240,78 @@ Re-run it yourself with `python3 car/tools/bench_protocol.py`, or against a live
 
 The region that actually changed between two of those messages compresses to about 200 bytes.
 
-**On the Jetson's CPU**, the honest picture is more mixed.
+### CPU
 
-Packing the map went from 178 ms to 2.2 ms per message, and the fan-out from ~3.3% of a core to ~0.8%. None of it happens at all when no browser is connected.
+`car/tools/dashboard_cpu_bench.py` measures the dashboard child process using
+`/proc/PID/stat` user + system time over 30 s after a 10 s settle. CPU is a
+percentage of one core. On 2026-11-09, the baseline was measured at `6dd1c2d` on an Intel
+Core i7-6700 @ 3.40 GHz (8 logical CPUs, x86_64 Linux, Jazzy container).
+The after run uses EventsExecutor and skips viewer-only message formatting
+while disconnected:
 
-But `dashboard_node`'s *total* CPU is dominated by rclpy's own executor and message deserialization, which this work does not touch. With no browser attached it sits around 35% of a core — right alongside `auto_map_race` (34%), `pure_pursuit` (32%) and `gap_follow` (25%) in the same run.
+| Scenario | Baseline CPU | After CPU |
+|---|---:|---:|
+| Idle: no traffic or viewer | 3.621% | 1.229% |
+| Traffic: synthetic ROS inputs, no viewer | 14.566% | 5.167% |
+| Watched: same traffic, one relay-role viewer | 17.199% | 5.900% |
 
-Every Python node in this workspace pays that floor. Attaching a browser is now lost in the noise of it.
+Watched CPU fell by 65.7%. The acceptance limits for this machine are watched
+CPU ≤6.3%, idle CPU ≤3%, and viewer rates within 5% of baseline. Received
+messages/s were:
 
-If you need the node itself cheaper than that, the lever is `enable_tuning: false`, which removes two service clients and the 0.5Hz graph query — not any of the above.
+| Type | Baseline | After |
+|---|---:|---:|
+| Batch | 19.866 | 20.000 |
+| Pose, drive, speed (each) | 19.799 | 20.000 |
+| Scan | 8.633 | 8.700 |
+| Stopwatch | 4.000 | 4.000 |
+| Stats | 1.000 | 1.000 |
+| Map keyframe | 0.033 | 0.033 |
+| Map patch | 0.167 | 0.167 |
+| Binary frame | 8.833 | 8.900 |
+
+All rates are within 2% of baseline, including the existing scan throttle's
+scheduling effects. Timer periods, map streaming and wire encoding are retained.
+EventsExecutor alone measured 1.229% idle, 4.967% traffic and 6.366% watched
+in the comparison run. The additional formatting guards lowered traffic CPU
+to 4.866% in that trial; their benefit is small compared with the executor change.
+Timer consolidation was tried and dropped because it did not improve the
+measurements (idle rose from 1.495% to 2.161% in that comparison).
+
+From this repository's root, run the isolated benchmark with the worktree's
+package ahead of the container's installed package:
+
+```bash
+rb bash -c 'export PYTHONPATH="$1/car/ros/web_dashboard:$PYTHONPATH"; python3 "$1/car/tools/dashboard_cpu_bench.py"' bash "$PWD"
+```
+
+The output contains machine metadata and one JSON result per scenario, with
+CPU and per-type messages/s for each viewer. `--params /absolute/path/car.yaml`
+selects another parameter file; the default is the package's generic YAML.
+The benchmark permits its own Origin, binds the server to loopback on an
+unused port, and publishes scan (1081 beams, 40 Hz), odometry (50 Hz), command
+(40 Hz), joystick (20 Hz), pose (50 Hz) and a 420×329 map at startup and every
+5 s with a changed cell. `--viewers N` changes the watched viewer count.
+Batch items are counted individually as well as their enclosing batch;
+binary frames are counted separately. Traffic and readers run outside the
+measured dashboard process. No package build is needed.
+Traffic gets a 1 s DDS discovery period before the 10 s settle, which also
+keeps the 5 s map updates away from measurement-window boundaries.
+
+Final verification on 2026-11-09 ran the ROS-free runner (721 dashboard tests
+and 64 camera-logic tests), all four ROS_ONLY files (28 tests), then the full
+benchmark above. All passed through `rb` on domain 79 with LOCALHOST discovery;
+the host Python lacked pytest. The new tests also failed against deliberate
+breaks: disabling viewer activity, discarding unwatched command state, and
+replacing executor construction with `NotImplementedError`. The breaks were
+removed before verification.
+
+**Limitations:** these before/after numbers are from the development machine,
+not the Jetson. Earlier Jetson work measured map packing at 178 ms before and
+2.2 ms after, with fan-out falling from about 3.3% to 0.8% of a core. A separate
+mapping run measured total dashboard CPU near 35% with no browser; that run
+predated EventsExecutor and used a different workload. Re-run this benchmark
+on the car to measure its current CPU cost.
 
 </details>
 

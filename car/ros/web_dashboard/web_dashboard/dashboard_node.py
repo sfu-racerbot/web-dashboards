@@ -116,6 +116,7 @@ from ament_index_python.packages import PackageNotFoundError, get_package_share_
 
 from web_dashboard import intent, mapstore, netbind, origins, proccontrol, protocol, tuning, raceline
 from web_dashboard.batching import TelemetryBatcher
+from web_dashboard.activity import has_viewers
 from web_dashboard.server import DashboardWebSocket, make_app, send_to_all
 from web_dashboard.mapstream import MapGeometry, MapStreamer
 from web_dashboard.stopwatch import DeadmanStopwatch
@@ -705,11 +706,13 @@ class DashboardNode(Node):
         if topic != self._last_pose_topic:
             self._last_pose_topic = topic
             self.get_logger().info(f"Pose display is now following '{topic}'.")
-        self._queue(protocol.pose_message(*self._last_pose))
+        if self._has_clients():
+            self._queue(protocol.pose_message(*self._last_pose))
 
     def drive_callback(self, msg: AckermannDriveStamped):
         self._last_drive = (msg.drive.speed, msg.drive.steering_angle)
-        self._queue(protocol.drive_message(*self._last_drive))
+        if self._has_clients():
+            self._queue(protocol.drive_message(*self._last_drive))
 
     def intent_callback(self, msg: String):
         """Forward one driving node's intent to every browser tab.
@@ -748,11 +751,13 @@ class DashboardNode(Node):
         # path is dropped only while it is indistinguishable from the
         # desired one, so the dashed ghost still appears exactly when the
         # shaping is doing something worth seeing.
-        self._queue(protocol.intent_message(protocol.thin_intent_payload(payload)))
+        if self._has_clients():
+            self._queue(protocol.intent_message(protocol.thin_intent_payload(payload)))
 
     def odom_callback(self, msg: Odometry):
         self._last_speed = msg.twist.twist.linear.x
-        self._queue(protocol.speed_message(self._last_speed))
+        if self._has_clients():
+            self._queue(protocol.speed_message(self._last_speed))
 
     def joy_callback(self, msg: Joy):
         with self._stopwatch_lock:
@@ -1796,7 +1801,7 @@ class DashboardNode(Node):
         running at all times, including during a race -- which is only
         honest if an unwatched dashboard is close to free.
         """
-        return bool(self.ws_clients)
+        return has_viewers(self.ws_clients)
 
     @contextlib.contextmanager
     def _replying_to(self, origin_ids):
@@ -1911,11 +1916,36 @@ class DashboardNode(Node):
             return []
 
 
+def _make_executor(node):
+    """Prefer Jazzy's event queue over rebuilding a wait set on every wake-up."""
+    try:
+        from rclpy.experimental import EventsExecutor
+        executor = EventsExecutor()
+    except Exception as exc:
+        from rclpy.executors import SingleThreadedExecutor
+        node.get_logger().warn(
+            f'EventsExecutor unavailable ({exc}); using SingleThreadedExecutor')
+        executor = SingleThreadedExecutor()
+    else:
+        node.get_logger().info('Using EventsExecutor')
+    return executor
+
+
+def _spin_executor(executor):
+    from rclpy.executors import ExternalShutdownException
+    try:
+        executor.spin()
+    except ExternalShutdownException:
+        pass  # SIGINT shuts down the ROS context before the IOLoop unwinds.
+
+
 def main(args=None):
     rclpy.init(args=args)
     node = DashboardNode()
 
-    ros_thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
+    executor = _make_executor(node)
+    executor.add_node(node)
+    ros_thread = threading.Thread(target=_spin_executor, args=(executor,), daemon=True)
     ros_thread.start()
 
     app = node.make_app()
@@ -1941,8 +1971,10 @@ def main(args=None):
         pass
     finally:
         node._loop.stop()
+        executor.shutdown()
+        ros_thread.join()
         node.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 if __name__ == '__main__':

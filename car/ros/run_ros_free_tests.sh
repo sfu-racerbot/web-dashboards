@@ -20,6 +20,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 ROS_FREE=(
+  web_dashboard/test/test_activity.py
   web_dashboard/test/test_batching.py
   web_dashboard/test/test_foxglove_bridge_config.py
   web_dashboard/test/test_install_files.py
@@ -43,6 +44,7 @@ ROS_FREE=(
   usb_cam_stream/test/test_stream_logic.py
 )
 ROS_ONLY=(
+  web_dashboard/test/test_dashboard_executor.py
   web_dashboard/test/test_dashboard_node_defaults.py
   usb_cam_stream/test/test_camera_stream_node.py
   usb_cam_stream/test/test_stream_tiers.py
