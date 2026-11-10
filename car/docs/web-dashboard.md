@@ -251,30 +251,30 @@ while disconnected:
 
 | Scenario | Baseline CPU | After CPU |
 |---|---:|---:|
-| Idle: no traffic or viewer | 3.621% | 1.329% |
-| Traffic: synthetic ROS inputs, no viewer | 14.566% | 4.866% |
-| Watched: same traffic, one relay-role viewer | 17.199% | 5.933% |
+| Idle: no traffic or viewer | 3.621% | 1.229% |
+| Traffic: synthetic ROS inputs, no viewer | 14.566% | 5.167% |
+| Watched: same traffic, one relay-role viewer | 17.199% | 5.900% |
 
-Watched CPU fell by 65.5%. The acceptance limits for this machine are watched
+Watched CPU fell by 65.7%. The acceptance limits for this machine are watched
 CPU ≤6.3%, idle CPU ≤3%, and viewer rates within 5% of baseline. Received
 messages/s were:
 
 | Type | Baseline | After |
 |---|---:|---:|
-| Batch | 19.866 | 20.033 |
-| Pose, drive, speed (each) | 19.799 | 20.033 |
-| Scan | 8.633 | 8.800 |
-| Stopwatch | 4.000 | 4.033 |
+| Batch | 19.866 | 20.000 |
+| Pose, drive, speed (each) | 19.799 | 20.000 |
+| Scan | 8.633 | 8.700 |
+| Stopwatch | 4.000 | 4.000 |
 | Stats | 1.000 | 1.000 |
 | Map keyframe | 0.033 | 0.033 |
 | Map patch | 0.167 | 0.167 |
-| Binary frame | 8.833 | 9.000 |
+| Binary frame | 8.833 | 8.900 |
 
 All rates are within 2% of baseline, including the existing scan throttle's
 scheduling effects. Timer periods, map streaming and wire encoding are retained.
 EventsExecutor alone measured 1.229% idle, 4.967% traffic and 6.366% watched
 in the comparison run. The additional formatting guards lowered traffic CPU
-to 4.866%; their benefit is small compared with the executor change.
+to 4.866% in that trial; their benefit is small compared with the executor change.
 Timer consolidation was tried and dropped because it did not improve the
 measurements (idle rose from 1.495% to 2.161% in that comparison).
 
@@ -297,6 +297,14 @@ binary frames are counted separately. Traffic and readers run outside the
 measured dashboard process. No package build is needed.
 Traffic gets a 1 s DDS discovery period before the 10 s settle, which also
 keeps the 5 s map updates away from measurement-window boundaries.
+
+Final verification on 2026-11-09 ran the ROS-free runner (721 dashboard tests
+and 64 camera-logic tests), all four ROS_ONLY files (28 tests), then the full
+benchmark above. All passed through `rb` on domain 79 with LOCALHOST discovery;
+the host Python lacked pytest. The new tests also failed against deliberate
+breaks: disabling viewer activity, discarding unwatched command state, and
+replacing executor construction with `NotImplementedError`. The breaks were
+removed before verification.
 
 **Limitations:** these before/after numbers are from the development machine,
 not the Jetson. Earlier Jetson work measured map packing at 178 ms before and
