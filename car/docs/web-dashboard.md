@@ -240,6 +240,44 @@ Re-run it yourself with `python3 car/tools/bench_protocol.py`, or against a live
 
 The region that actually changed between two of those messages compresses to about 200 bytes.
 
+### CPU
+
+`car/tools/dashboard_cpu_bench.py` measures the dashboard child process using
+`/proc/PID/stat` user + system time over 30 s after a 10 s settle. CPU is a
+percentage of one core. On 2026-11-09, the baseline at `6dd1c2d` on an Intel
+Core i7-6700 @ 3.40 GHz (8 logical CPUs, x86_64 Linux, Jazzy container) was:
+
+| Scenario | Baseline CPU |
+|---|---:|
+| Idle: no traffic or viewer | 3.621% |
+| Traffic: synthetic ROS inputs, no viewer | 14.566% |
+| Watched: same traffic, one relay-role viewer | 17.199% |
+
+The watched viewer received 19.866 batches/s, 19.799/s each of pose, drive and
+speed, 8.633 scans/s, 4.000 stopwatch updates/s, 1.000 stats/s, 0.033 map
+keyframes/s and 0.167 map patches/s. These are measured rates, including the
+existing scan throttle's scheduling effects.
+
+From this repository's root, run the isolated benchmark with the worktree's
+package ahead of the container's installed package:
+
+```bash
+rb bash -c 'export PYTHONPATH="$1/car/ros/web_dashboard:$PYTHONPATH"; python3 "$1/car/tools/dashboard_cpu_bench.py"' bash "$PWD"
+```
+
+The output contains machine metadata and one JSON result per scenario, with
+CPU and per-type messages/s for each viewer. `--params /absolute/path/car.yaml`
+selects another parameter file; the default is the package's generic YAML.
+The benchmark permits its own Origin, binds the server to loopback on an
+unused port, and publishes scan (1081 beams, 40 Hz), odometry (50 Hz), command
+(40 Hz), joystick (20 Hz), pose (50 Hz) and a 420×329 map at startup and every
+5 s with a changed cell. `--viewers N` changes the watched viewer count.
+Batch items are counted individually as well as their enclosing batch;
+binary frames are counted separately. Traffic and readers run outside the
+measured dashboard process. No package build is needed.
+
+The earlier Jetson measurements below used a different workload:
+
 **On the Jetson's CPU**, the honest picture is more mixed.
 
 Packing the map went from 178 ms to 2.2 ms per message, and the fan-out from ~3.3% of a core to ~0.8%. None of it happens at all when no browser is connected.
