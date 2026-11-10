@@ -244,19 +244,39 @@ The region that actually changed between two of those messages compresses to abo
 
 `car/tools/dashboard_cpu_bench.py` measures the dashboard child process using
 `/proc/PID/stat` user + system time over 30 s after a 10 s settle. CPU is a
-percentage of one core. On 2026-11-09, the baseline at `6dd1c2d` on an Intel
-Core i7-6700 @ 3.40 GHz (8 logical CPUs, x86_64 Linux, Jazzy container) was:
+percentage of one core. On 2026-11-09, the baseline was measured at `6dd1c2d` on an Intel
+Core i7-6700 @ 3.40 GHz (8 logical CPUs, x86_64 Linux, Jazzy container).
+The after run uses EventsExecutor and skips viewer-only message formatting
+while disconnected:
 
-| Scenario | Baseline CPU |
-|---|---:|
-| Idle: no traffic or viewer | 3.621% |
-| Traffic: synthetic ROS inputs, no viewer | 14.566% |
-| Watched: same traffic, one relay-role viewer | 17.199% |
+| Scenario | Baseline CPU | After CPU |
+|---|---:|---:|
+| Idle: no traffic or viewer | 3.621% | 1.329% |
+| Traffic: synthetic ROS inputs, no viewer | 14.566% | 4.866% |
+| Watched: same traffic, one relay-role viewer | 17.199% | 5.933% |
 
-The watched viewer received 19.866 batches/s, 19.799/s each of pose, drive and
-speed, 8.633 scans/s, 4.000 stopwatch updates/s, 1.000 stats/s, 0.033 map
-keyframes/s and 0.167 map patches/s. These are measured rates, including the
-existing scan throttle's scheduling effects.
+Watched CPU fell by 65.5%. The acceptance limits for this machine are watched
+CPU ≤6.3%, idle CPU ≤3%, and viewer rates within 5% of baseline. Received
+messages/s were:
+
+| Type | Baseline | After |
+|---|---:|---:|
+| Batch | 19.866 | 20.033 |
+| Pose, drive, speed (each) | 19.799 | 20.033 |
+| Scan | 8.633 | 8.800 |
+| Stopwatch | 4.000 | 4.033 |
+| Stats | 1.000 | 1.000 |
+| Map keyframe | 0.033 | 0.033 |
+| Map patch | 0.167 | 0.167 |
+| Binary frame | 8.833 | 9.000 |
+
+All rates are within 2% of baseline, including the existing scan throttle's
+scheduling effects. Timer periods, map streaming and wire encoding are retained.
+EventsExecutor alone measured 1.229% idle, 4.967% traffic and 6.366% watched
+in the comparison run. The additional formatting guards lowered traffic CPU
+to 4.866%; their benefit is small compared with the executor change.
+Timer consolidation was tried and dropped because it did not improve the
+measurements (idle rose from 1.495% to 2.161% in that comparison).
 
 From this repository's root, run the isolated benchmark with the worktree's
 package ahead of the container's installed package:
@@ -275,18 +295,15 @@ unused port, and publishes scan (1081 beams, 40 Hz), odometry (50 Hz), command
 Batch items are counted individually as well as their enclosing batch;
 binary frames are counted separately. Traffic and readers run outside the
 measured dashboard process. No package build is needed.
+Traffic gets a 1 s DDS discovery period before the 10 s settle, which also
+keeps the 5 s map updates away from measurement-window boundaries.
 
-The earlier Jetson measurements below used a different workload:
-
-**On the Jetson's CPU**, the honest picture is more mixed.
-
-Packing the map went from 178 ms to 2.2 ms per message, and the fan-out from ~3.3% of a core to ~0.8%. None of it happens at all when no browser is connected.
-
-But `dashboard_node`'s *total* CPU is dominated by rclpy's own executor and message deserialization, which this work does not touch. With no browser attached it sits around 35% of a core — right alongside `auto_map_race` (34%), `pure_pursuit` (32%) and `gap_follow` (25%) in the same run.
-
-Every Python node in this workspace pays that floor. Attaching a browser is now lost in the noise of it.
-
-If you need the node itself cheaper than that, the lever is `enable_tuning: false`, which removes two service clients and the 0.5Hz graph query — not any of the above.
+**Limitations:** these before/after numbers are from the development machine,
+not the Jetson. Earlier Jetson work measured map packing at 178 ms before and
+2.2 ms after, with fan-out falling from about 3.3% to 0.8% of a core. A separate
+mapping run measured total dashboard CPU near 35% with no browser; that run
+predated EventsExecutor and used a different workload. Re-run this benchmark
+on the car to measure its current CPU cost.
 
 </details>
 
